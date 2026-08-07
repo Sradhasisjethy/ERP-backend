@@ -75,7 +75,12 @@ describe('GET /health', () => {
 
 describe('unmatched routes', () => {
   it('returns a JSON 404 instead of the Express default HTML page', async () => {
-    const res = await request(app).get('/api/v1/does-not-exist');
+    // A path outside every mounted router. (Anything under /api/v1/* that isn't
+    // /auth or /users falls through to organizationRouter, which applies
+    // `authenticate` first — so an unauthenticated request there 401s before
+    // ever reaching the 404 handler. That's the existing route mount structure,
+    // not something this test is checking.)
+    const res = await request(app).get('/this-route-does-not-exist-anywhere');
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
   });
