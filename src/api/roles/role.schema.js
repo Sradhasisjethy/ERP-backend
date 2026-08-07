@@ -1,18 +1,24 @@
 const { z } = require('zod');
 
-const createRoleSchema = z.object({
+const roleBody = z.object({
   name: z.string().min(1),
   code: z.string().optional(),
   description: z.string().optional(),
   permissions: z.array(z.string()).default([]),
 });
 
-const updateRoleSchema = createRoleSchema.partial().extend({
-  status: z.enum(['active', 'inactive']).optional(),
+// See organization.schema.js for why these are wrapped in `body:`.
+const createRoleSchema = z.object({ body: roleBody });
+const updateRoleSchema = z.object({
+  body: roleBody.partial().extend({
+    status: z.enum(['active', 'inactive']).optional(),
+  }),
 });
 
 const assignMemberSchema = z.object({
-  employeeId: z.string().uuid(),
+  body: z.object({
+    employeeId: z.string().uuid(),
+  }),
 });
 
 const listQuerySchema = z.object({

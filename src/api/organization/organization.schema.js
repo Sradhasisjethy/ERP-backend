@@ -1,17 +1,23 @@
 const { z } = require('zod');
 
-const createOrganizationSchema = z.object({
+const organizationBody = z.object({
   name: z.string().min(1),
   code: z.string().optional(),
   description: z.string().optional(),
   settings: z.any().optional(),
 });
 
-const updateOrganizationSchema = createOrganizationSchema.partial().extend({
-  status: z.enum(['active', 'inactive']).optional(),
+// `validate()` with no explicit source validates { body, query, params } as one object,
+// so the schema must mirror that shape — a bare (unwrapped) schema here would reject
+// every request with "Required" since `name` etc. only exist under req.body.
+const createOrganizationSchema = z.object({ body: organizationBody });
+const updateOrganizationSchema = z.object({
+  body: organizationBody.partial().extend({
+    status: z.enum(['active', 'inactive']).optional(),
+  }),
 });
 
-const createOfficeSchema = z.object({
+const officeBody = z.object({
   organizationId: z.string().uuid(),
   name: z.string().min(1),
   code: z.string().optional(),
@@ -19,16 +25,19 @@ const createOfficeSchema = z.object({
   city: z.string().optional(),
   state: z.string().optional(),
   country: z.string().optional(),
-  geofenceRadius: z.number().int().optional(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
+  geofenceRadius: z.coerce.number().int().optional(),
+  latitude: z.coerce.number().optional(),
+  longitude: z.coerce.number().optional(),
 });
 
-const updateOfficeSchema = createOfficeSchema.partial().extend({
-  status: z.enum(['active', 'inactive']).optional(),
+const createOfficeSchema = z.object({ body: officeBody });
+const updateOfficeSchema = z.object({
+  body: officeBody.partial().extend({
+    status: z.enum(['active', 'inactive']).optional(),
+  }),
 });
 
-const createDepartmentSchema = z.object({
+const departmentBody = z.object({
   organizationId: z.string().uuid(),
   name: z.string().min(1),
   code: z.string().optional(),
@@ -36,8 +45,11 @@ const createDepartmentSchema = z.object({
   headId: z.string().uuid().optional(),
 });
 
-const updateDepartmentSchema = createDepartmentSchema.partial().extend({
-  status: z.enum(['active', 'inactive']).optional(),
+const createDepartmentSchema = z.object({ body: departmentBody });
+const updateDepartmentSchema = z.object({
+  body: departmentBody.partial().extend({
+    status: z.enum(['active', 'inactive']).optional(),
+  }),
 });
 
 const listQuerySchema = z.object({
