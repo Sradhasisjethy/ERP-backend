@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { BaseScopedModel } = require('../../core/BaseModel');
+const { Office } = require('./office.model');
 
 /**
  * Department model representing hierarchical departments.
@@ -17,6 +18,10 @@ Department.initScoped(
     organizationId: {
       type: DataTypes.UUID,
       allowNull: false,
+    },
+    officeId: {
+      type: DataTypes.UUID,
+      allowNull: true,
     },
     name: {
       type: DataTypes.STRING,
@@ -47,5 +52,6 @@ Department.initScoped(
 
 Department.belongsTo(Department, { as: 'parentDepartment', foreignKey: 'parentId' });
 Department.hasMany(Department, { as: 'subDepartments', foreignKey: 'parentId' });
+Department.belongsTo(Office, { foreignKey: 'officeId' });
 
 module.exports = { Department };

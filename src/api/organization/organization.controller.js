@@ -58,8 +58,8 @@ const deleteOffice = asyncHandler(async (req, res) => {
 
 // Departments
 const listDepartments = asyncHandler(async (req, res) => {
-  const { page, limit, organizationId, search, status } = req.query;
-  const data = await OrganizationService.listDepartments(Number(page), Number(limit), organizationId, search, status);
+  const { page, limit, organizationId, officeId, search, status } = req.query;
+  const data = await OrganizationService.listDepartments(Number(page), Number(limit), organizationId, officeId, search, status);
   sendSuccess(res, data, 'Departments retrieved successfully');
 });
 
