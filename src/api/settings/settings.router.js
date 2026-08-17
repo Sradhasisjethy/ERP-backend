@@ -11,9 +11,9 @@ const settingsRouter = Router();
 settingsRouter.use(authenticate, tenantScope);
 
 settingsRouter.get('/', authorize('SETTINGS_READ'), validate(listSettingsQuerySchema, 'query'), listSettings);
-settingsRouter.post('/', authorize('SETTINGS_WRITE'), validate(createSettingSchema), upsertSetting);
+settingsRouter.post('/', authorize('SETTINGS_CREATE'), validate(createSettingSchema), upsertSetting);
 settingsRouter.get('/:key', authorize('SETTINGS_READ'), getSetting);
-settingsRouter.put('/:key', authorize('SETTINGS_WRITE'), validate(updateSettingSchema), upsertSetting);
-settingsRouter.delete('/:key', authorize('SETTINGS_WRITE'), deleteSetting);
+settingsRouter.put('/:key', authorize('SETTINGS_MODIFY'), validate(updateSettingSchema), upsertSetting);
+settingsRouter.delete('/:key', authorize('SETTINGS_DELETE'), deleteSetting);
 
 module.exports = { settingsRouter };

@@ -1,12 +1,12 @@
 const { asyncHandler } = require('../../core/asyncHandler');
 const { OrganizationService } = require('./organization.service');
-const { sendSuccess } = require('../../utils/response');
+const { sendSuccess, sendList } = require('../../utils/response');
 
 // Organizations
 const listOrganizations = asyncHandler(async (req, res) => {
   const { page, limit, search, status } = req.query;
   const data = await OrganizationService.listOrganizations(Number(page), Number(limit), search, status);
-  sendSuccess(res, data, 'Organizations retrieved successfully');
+  sendList(res, req, data, 'Organizations retrieved successfully');
 });
 
 const getOrganization = asyncHandler(async (req, res) => {
@@ -33,7 +33,7 @@ const deleteOrganization = asyncHandler(async (req, res) => {
 const listOffices = asyncHandler(async (req, res) => {
   const { page, limit, organizationId, search, status } = req.query;
   const data = await OrganizationService.listOffices(Number(page), Number(limit), organizationId, search, status);
-  sendSuccess(res, data, 'Offices retrieved successfully');
+  sendList(res, req, data, 'Offices retrieved successfully');
 });
 
 const getOffice = asyncHandler(async (req, res) => {
@@ -60,7 +60,7 @@ const deleteOffice = asyncHandler(async (req, res) => {
 const listDepartments = asyncHandler(async (req, res) => {
   const { page, limit, organizationId, search, status } = req.query;
   const data = await OrganizationService.listDepartments(Number(page), Number(limit), organizationId, search, status);
-  sendSuccess(res, data, 'Departments retrieved successfully');
+  sendList(res, req, data, 'Departments retrieved successfully');
 });
 
 const getDepartment = asyncHandler(async (req, res) => {

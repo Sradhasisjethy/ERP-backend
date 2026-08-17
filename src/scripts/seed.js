@@ -8,9 +8,37 @@ const {
   AdGroup,
   AdGroupMember,
   TenantSettings,
+  Factory,
+  FinancialYear,
+  UserFactory,
+  Uom,
+  ProductCategory,
+  HsnCode,
+  Product,
+  MixDesign,
+  MixDesignLine,
+  Party,
+  LabourWageProfile,
+  PriceList,
+  PriceListItem,
 } = require('../models/index');
 const bcrypt = require('bcryptjs');
+const cls = require('cls-hooked');
 const { EmployeeStatus, EmployeeType, SystemRoles } = require('../utils/constants');
+const { NAMESPACE_NAME } = require('../core/tenantContext');
+const { StockLedgerService } = require('../api/inventory/stockLedger.service');
+
+// StockLedgerService (like every BaseAuditedModel hook) reads tenantId from
+// CLS rather than a parameter, because that's how request-scoped tenant
+// isolation works everywhere else in the app. The seed script has no
+// request, so this opens the same kind of session by hand.
+const runInTenantContext = (tenantId, fn) => {
+  const session = cls.getNamespace(NAMESPACE_NAME) || cls.createNamespace(NAMESPACE_NAME);
+  return session.runAndReturn(() => {
+    session.set('tenantId', tenantId);
+    return fn();
+  });
+};
 
 const seedDatabase = async () => {
   try {
@@ -74,9 +102,11 @@ const seedDatabase = async () => {
     const rolesData = [
       { name: 'Platform Admin', description: 'Full system access', permissions: ['*'] },
       {
+        // Can onboard and edit people but not delete them — the kind of split the
+        // coarse EMPLOYEE_WRITE this used to hold couldn't express.
         name: 'HR Manager',
         description: 'HR capabilities',
-        permissions: ['EMPLOYEE_READ', 'EMPLOYEE_WRITE', 'ORG_READ', 'SETTINGS_READ'],
+        permissions: ['EMPLOYEE_READ', 'EMPLOYEE_CREATE', 'EMPLOYEE_MODIFY', 'ORG_READ', 'SETTINGS_READ'],
       },
       {
         name: 'Engineering Lead',
@@ -168,6 +198,126 @@ const seedDatabase = async () => {
     );
     console.log(`Created ${settings.length} Settings`);
 
+    // h. Financial Year (current)
+    const financialYear = await FinancialYear.create({
+      tenantId,
+      code: '2026-27',
+      startDate: '2026-04-01',
+      endDate: '2027-03-31',
+      isCurrent: true,
+    });
+    console.log(`Created Financial Year: ${financialYear.code}`);
+
+    // i. Factories (BRD: Bhuasuni Precast — multiple factory locations)
+    const factories = await Promise.all([
+      Factory.create({ tenantId, organizationId, name: 'Bhubaneswar Plant', code: 'BBSR', city: 'Bhubaneswar', state: 'Odisha' }),
+      Factory.create({ tenantId, organizationId, name: 'Cuttack Plant', code: 'CTC', city: 'Cuttack', state: 'Odisha' }),
+    ]);
+    console.log(`Created ${factories.length} Factories`);
+
+    await UserFactory.create({ tenantId, factoryId: factories[0].id, userId: employees[1].id });
+    console.log(`Assigned ${employees[1].email} to ${factories[0].name}`);
+
+    // j. Product / BOM masters
+    const uoms = await Promise.all([
+      Uom.create({ tenantId, name: 'Numbers', code: 'NOS' }),
+      Uom.create({ tenantId, name: 'Kilogram', code: 'KG' }),
+      Uom.create({ tenantId, name: 'Cubic Meter', code: 'CUM' }),
+      Uom.create({ tenantId, name: 'Bag', code: 'BAG' }),
+    ]);
+    console.log(`Created ${uoms.length} UoMs`);
+
+    const category = await ProductCategory.create({ tenantId, name: 'Precast Concrete', code: 'PRECAST' });
+    const rawMaterialCategory = await ProductCategory.create({ tenantId, name: 'Raw Materials', code: 'RAWMAT' });
+    console.log('Created 2 Product Categories');
+
+    const hsnCode = await HsnCode.create({ tenantId, code: '6810', description: 'Articles of cement, concrete', gstRatePercent: 18 });
+    console.log(`Created HSN Code: ${hsnCode.code}`);
+
+    const nosUom = uoms.find((u) => u.code === 'NOS');
+    const kgUom = uoms.find((u) => u.code === 'KG');
+    const bagUom = uoms.find((u) => u.code === 'BAG');
+    const cumUom = uoms.find((u) => u.code === 'CUM');
+
+    const [cement, sand, aggregate, precastSlab] = await Promise.all([
+      Product.create({ tenantId, categoryId: rawMaterialCategory.id, uomId: bagUom.id, name: 'Cement (OPC 43)', code: 'RM-CEMENT', productType: 'RAW_MATERIAL' }),
+      Product.create({ tenantId, categoryId: rawMaterialCategory.id, uomId: cumUom.id, name: 'Sand', code: 'RM-SAND', productType: 'RAW_MATERIAL' }),
+      Product.create({ tenantId, categoryId: rawMaterialCategory.id, uomId: cumUom.id, name: 'Aggregate 20mm', code: 'RM-AGG20', productType: 'RAW_MATERIAL' }),
+      Product.create({
+        tenantId,
+        categoryId: category.id,
+        uomId: nosUom.id,
+        hsnId: hsnCode.id,
+        name: 'Precast Boundary Slab 6ft',
+        code: 'FG-SLAB-6FT',
+        productType: 'FINISHED_GOOD',
+        curingDays: 14,
+        standardCostPaise: 45000,
+      }),
+    ]);
+    console.log('Created 4 Products (3 raw materials, 1 finished good)');
+
+    const mixDesign = await MixDesign.create({ tenantId, productId: precastSlab.id, name: 'Standard Mix v1', version: 1, isActive: true });
+    await MixDesignLine.bulkCreate([
+      { tenantId, mixDesignId: mixDesign.id, rawMaterialProductId: cement.id, quantityPerUnit: 0.5, uomId: bagUom.id },
+      { tenantId, mixDesignId: mixDesign.id, rawMaterialProductId: sand.id, quantityPerUnit: 0.08, uomId: cumUom.id },
+      { tenantId, mixDesignId: mixDesign.id, rawMaterialProductId: aggregate.id, quantityPerUnit: 0.05, uomId: cumUom.id },
+    ]);
+    console.log(`Created Mix Design "${mixDesign.name}" with 3 lines for ${precastSlab.name}`);
+
+    // Stock the raw materials at the first factory so Production Entry has
+    // something to consume out of the box — otherwise BR-04 correctly blocks
+    // every casting attempt with "insufficient stock" on a fresh database.
+    await runInTenantContext(tenantId, async () => {
+      await sequelize.transaction(async (transaction) => {
+        for (const [product, quantity] of [
+          [cement, 500],
+          [sand, 200],
+          [aggregate, 200],
+        ]) {
+          const lot = await StockLedgerService.createLot({
+            factoryId: factories[0].id,
+            productId: product.id,
+            lotNumber: `SEED-${product.code}`,
+            originType: 'PURCHASE',
+            originId: '00000000-0000-0000-0000-000000000000',
+            originDate: '2026-08-01',
+            quantity,
+            transaction,
+          });
+          await StockLedgerService.postEntry({
+            factoryId: factories[0].id,
+            productId: product.id,
+            lotId: lot.id,
+            movementType: 'PURCHASE_IN',
+            direction: 'IN',
+            quantity,
+            referenceType: 'SeedData',
+            referenceId: lot.id,
+            transaction,
+          });
+        }
+      });
+    });
+    console.log(`Stocked raw materials at ${factories[0].name}`);
+
+    // k. Party masters (Customer/Vendor/Contractor/Labour/Sales Reference)
+    const [customer, vendor, contractor, labour] = await Promise.all([
+      Party.create({ tenantId, partyType: 'CUSTOMER', name: 'Kalinga Builders Pvt Ltd', gstin: '21AAAAA0000A1Z5', city: 'Bhubaneswar', state: 'Odisha', creditLimitPaise: 50000000 }),
+      Party.create({ tenantId, partyType: 'VENDOR', name: 'Odisha Cement Suppliers', gstin: '21BBBBB0000B1Z5', city: 'Cuttack', state: 'Odisha' }),
+      Party.create({ tenantId, partyType: 'CONTRACTOR', name: 'Rabi Casting Contractor', phone: '9800000001' }),
+      Party.create({ tenantId, partyType: 'LABOUR', name: 'Suresh Mallick', phone: '9800000002' }),
+    ]);
+    console.log('Created 4 Parties (customer, vendor, contractor, labour)');
+
+    await LabourWageProfile.create({ tenantId, partyId: labour.id, dailyWagePaise: 60000, overtimeRateMultiplier: 1.5 });
+    console.log(`Created wage profile for ${labour.name}`);
+
+    // l. Default retail price list
+    const priceList = await PriceList.create({ tenantId, name: 'Standard Retail', priceType: 'RETAIL', isDefault: true });
+    await PriceListItem.create({ tenantId, priceListId: priceList.id, productId: precastSlab.id, ratePaise: 65000 });
+    console.log(`Created price list "${priceList.name}" with 1 item`);
+
     console.log('\n--- Seeding Summary ---');
     console.log(`Tenant: 1`);
     console.log(`Organizations: 1`);
@@ -176,6 +326,9 @@ const seedDatabase = async () => {
     console.log(`Employees: ${employees.length}`);
     console.log(`Roles: ${roles.length}`);
     console.log(`Settings: ${settings.length}`);
+    console.log(`Factories: ${factories.length}`);
+    console.log(`Products: 4 (+ 1 Mix Design)`);
+    console.log(`Parties: 4`);
     console.log('Seeding completed successfully!');
 
     process.exit(0);

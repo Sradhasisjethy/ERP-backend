@@ -2,6 +2,7 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
+const { resetDatabase } = require('./helpers/db');
 const { Tenant, Organization, AdGroup, AdGroupMember, User } = require('../src/models/index');
 
 const PASSWORD = 'password123';
@@ -17,7 +18,7 @@ const extractCookie = (res, name) => {
 };
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetDatabase();
 
   const tenant = await Tenant.create({ name: 'Test Co', slug: 'test-co', status: 'active' });
   const org = await Organization.create({ tenantId: tenant.id, name: 'Test Org', status: 'active' });

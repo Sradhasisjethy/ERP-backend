@@ -5,6 +5,7 @@ const { AdGroup } = require('../roles/role.model');
 const { AdGroupMember } = require('../roles/adGroupMember.model');
 const { env } = require('../../config/env');
 const { UnauthorizedError, NotFoundError } = require('../../core/AppError');
+const { expandPermissions } = require('../../utils/permissionCatalog');
 
 class AuthService {
   /**
@@ -12,6 +13,11 @@ class AuthService {
    * (roles) they're a member of. This is what the `authorize()` middleware checks
    * against — previously this was hardcoded to `[]`, so every permission check
    * failed for every role except the bypass roles (PLATFORM_ADMIN/TENANT_OWNER).
+   *
+   * Returns *effective* permissions: what a role stores is expanded here, so a
+   * role still holding the pre-split `PRODUCT_WRITE` (or the seeded `*`) grants
+   * the granular codes the route guards now ask for. Doing it once here keeps
+   * every authorize() call a plain array lookup.
    */
   async getPermissionsForUser(userId) {
     const memberships = await AdGroupMember.findAll({
@@ -26,7 +32,7 @@ class AuthService {
         group.permissions.forEach((permission) => permissions.add(permission));
       }
     }
-    return Array.from(permissions);
+    return expandPermissions(Array.from(permissions));
   }
 
   async generateAccessToken(user) {
@@ -101,7 +107,8 @@ class AuthService {
     if (!user) {
       throw new NotFoundError('User not found');
     }
-    return user;
+    const permissions = await this.getPermissionsForUser(userId);
+    return { ...user.toJSON(), permissions };
   }
 }
 

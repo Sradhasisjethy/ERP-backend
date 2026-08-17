@@ -1,0 +1,119 @@
+const { z } = require('zod');
+
+const uomBody = z.object({
+  name: z.string().min(1),
+  code: z.string().min(1),
+});
+const createUomSchema = z.object({ body: uomBody });
+const updateUomSchema = z.object({ body: uomBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }) });
+
+const productCategoryBody = z.object({
+  name: z.string().min(1),
+  code: z.string().optional(),
+  parentId: z.string().uuid().optional(),
+});
+const createProductCategorySchema = z.object({ body: productCategoryBody });
+const updateProductCategorySchema = z.object({
+  body: productCategoryBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }),
+});
+
+const hsnCodeBody = z.object({
+  code: z.string().min(1),
+  description: z.string().optional(),
+  gstRatePercent: z.coerce.number().min(0).max(100).optional(),
+});
+const createHsnCodeSchema = z.object({ body: hsnCodeBody });
+const updateHsnCodeSchema = z.object({ body: hsnCodeBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }) });
+
+const productBody = z.object({
+  categoryId: z.string().uuid().optional(),
+  uomId: z.string().uuid(),
+  hsnId: z.string().uuid().optional(),
+  name: z.string().min(1),
+  code: z.string().min(1),
+  productType: z.enum(['FINISHED_GOOD', 'RAW_MATERIAL']).optional(),
+  curingDays: z.coerce.number().int().min(0).optional(),
+  standardCostPaise: z.coerce.number().int().min(0).optional(),
+  reorderLevel: z.coerce.number().min(0).optional(),
+  minStock: z.coerce.number().min(0).optional(),
+  maxStock: z.coerce.number().min(0).optional(),
+  slowMovingDays: z.coerce.number().int().min(1).optional(),
+  deadStockDays: z.coerce.number().int().min(1).optional(),
+  alertBeforeDays: z.coerce.number().int().min(0).optional(),
+});
+const createProductSchema = z.object({ body: productBody });
+const updateProductSchema = z.object({ body: productBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }) });
+
+const mixDesignBody = z.object({
+  productId: z.string().uuid(),
+  name: z.string().min(1),
+  version: z.coerce.number().int().min(1).optional(),
+  effectiveFrom: z.string().optional(),
+  outputQuantity: z.coerce.number().positive().optional(),
+  bomType: z.enum(['MANUFACTURING', 'ASSEMBLY']).optional(),
+  // Create-and-activate in one step; the usual choice for a product's first BOM.
+  activate: z.boolean().optional(),
+  lines: z
+    .array(
+      z.object({
+        rawMaterialProductId: z.string().uuid(),
+        quantityPerUnit: z.coerce.number().positive(),
+        uomId: z.string().uuid(),
+        wastagePercent: z.coerce.number().min(0).max(100).optional(),
+        isOptional: z.boolean().optional(),
+      })
+    )
+    .min(1),
+});
+const createMixDesignSchema = z.object({ body: mixDesignBody });
+const updateMixDesignSchema = z.object({
+  body: mixDesignBody.partial().extend({ lines: mixDesignBody.shape.lines.optional() }),
+});
+
+const listQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(10),
+  search: z.string().trim().min(1).optional(),
+  sortBy: z.string().trim().min(1).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
+  search: z.string().optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  categoryId: z.string().uuid().optional(),
+  productType: z.enum(['FINISHED_GOOD', 'RAW_MATERIAL']).optional(),
+  productId: z.string().uuid().optional(),
+});
+
+// FR-M03-2: conversions between units, e.g. 1 Bag = 50 Kg.
+const uomConversionBody = z.object({
+  fromUomId: z.string().uuid(),
+  toUomId: z.string().uuid(),
+  factor: z.coerce.number().positive(),
+  status: z.enum(['active', 'inactive']).optional(),
+});
+const createUomConversionSchema = z.object({ body: uomConversionBody });
+const updateUomConversionSchema = z.object({ body: uomConversionBody.partial() });
+const convertQuerySchema = z.object({
+  quantity: z.coerce.number(),
+  fromUomId: z.string().uuid(),
+  toUomId: z.string().uuid(),
+});
+
+const cloneMixDesignSchema = z.object({ body: z.object({ name: z.string().min(1).optional() }) });
+const activateMixDesignSchema = z.object({ body: z.object({ effectiveFrom: z.string().optional() }) });
+const explodeQuerySchema = z.object({ outputQty: z.coerce.number().positive().default(1) });
+
+module.exports = {
+  createUomConversionSchema, updateUomConversionSchema, convertQuerySchema,
+  cloneMixDesignSchema, activateMixDesignSchema, explodeQuerySchema,
+  createUomSchema,
+  updateUomSchema,
+  createProductCategorySchema,
+  updateProductCategorySchema,
+  createHsnCodeSchema,
+  updateHsnCodeSchema,
+  createProductSchema,
+  updateProductSchema,
+  createMixDesignSchema,
+  updateMixDesignSchema,
+  listQuerySchema,
+};
