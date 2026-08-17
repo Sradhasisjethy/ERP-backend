@@ -37,6 +37,9 @@ Organization.initScoped(
   },
   {
     sequelize,
+    // D2: optimistic locking — a save from a stale form is rejected
+    // rather than silently overwriting a concurrent edit.
+    version: 'lockVersion',
     tableName: 'organizations',
   }
 );

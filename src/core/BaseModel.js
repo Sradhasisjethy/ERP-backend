@@ -37,6 +37,22 @@ class BaseScopedModel extends Model {
       },
       {
         ...restOptions,
+        // D2 optimistic locking is opt-IN per model (pass
+        // `version: 'lockVersion'`), not blanket, for two reasons:
+        //
+        //  - Rows the system mutates in bulk (StockLot via promoteEligibleLots
+        //    / rebuildStockBalances, StockReservation via release) are changed
+        //    with `Model.update(...)`, which does NOT bump the version counter.
+        //    Any instance held across such a call becomes permanently stale and
+        //    every later save throws — a self-inflicted outage, not a safeguard.
+        //
+        //  - Stock deduction already uses pessimistic locking (SELECT ... FOR
+        //    UPDATE in StockLedgerService.postEntry), which is strictly stronger
+        //    for the oversell case D2 actually cares about. Layering optimistic
+        //    locking on top adds failure modes without adding protection.
+        //
+        // So it is enabled on records a human edits through a form, where two
+        // people overwriting each other silently is the real risk.
         defaultScope: {
           ...modelDefaultScope,
           attributes: {

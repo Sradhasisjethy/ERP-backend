@@ -2,6 +2,7 @@ const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
+const { resetDatabase } = require('./helpers/db');
 const { Tenant, User } = require('../src/models/index');
 
 const PASSWORD = 'password123';
@@ -14,7 +15,7 @@ const extractCookie = (res, name) => {
 };
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetDatabase();
 
   const tenant = await Tenant.create({ name: 'CRUD Test Co', slug: 'crud-test-co', status: 'active' });
   const passwordHash = await bcrypt.hash(PASSWORD, 10);

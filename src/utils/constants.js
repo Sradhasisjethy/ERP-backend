@@ -1,3 +1,5 @@
+const { ALL_PERMISSIONS, LEGACY_WRITE_ALIASES } = require('./permissionCatalog');
+
 const SystemRoles = Object.freeze({
   PLATFORM_ADMIN: 'PLATFORM_ADMIN',
   TENANT_OWNER: 'TENANT_OWNER',
@@ -7,16 +9,17 @@ const SystemRoles = Object.freeze({
   EMPLOYEE: 'EMPLOYEE',
 });
 
-const WebPermissions = Object.freeze({
-  EMPLOYEE_READ: 'EMPLOYEE_READ',
-  EMPLOYEE_WRITE: 'EMPLOYEE_WRITE',
-  ORG_READ: 'ORG_READ',
-  ORG_WRITE: 'ORG_WRITE',
-  ROLE_READ: 'ROLE_READ',
-  ROLE_WRITE: 'ROLE_WRITE',
-  SETTINGS_READ: 'SETTINGS_READ',
-  SETTINGS_WRITE: 'SETTINGS_WRITE',
-});
+/**
+ * Every grantable permission code, keyed by itself, generated from the catalog in
+ * permissionCatalog.js so the two can never drift.
+ *
+ * Includes the deprecated `<RESOURCE>_WRITE` codes: no route guard uses them any
+ * more, but roles stored before the split still hold them and `expandPermissions`
+ * still honours them. Don't add new ones.
+ */
+const WebPermissions = Object.freeze(
+  Object.fromEntries([...ALL_PERMISSIONS, ...Object.keys(LEGACY_WRITE_ALIASES)].map((code) => [code, code]))
+);
 
 const EmployeeType = Object.freeze({
   FULL_TIME: 'FULL_TIME',

@@ -4,6 +4,7 @@ const { tenantScope } = require('../../middlewares/tenantScope');
 const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
 const {
+  getPermissionCatalog,
   listRoles,
   getRole,
   createRole,
@@ -24,14 +25,17 @@ const roleRouter = Router();
 
 roleRouter.use(authenticate, tenantScope);
 
+// Before '/:id' so the literal path isn't swallowed by the id route.
+roleRouter.get('/permission-catalog', authorize('ROLE_READ'), getPermissionCatalog);
+
 roleRouter.get('/', authorize('ROLE_READ'), validate(listQuerySchema, 'query'), listRoles);
-roleRouter.post('/', authorize('ROLE_WRITE'), validate(createRoleSchema), createRole);
+roleRouter.post('/', authorize('ROLE_CREATE'), validate(createRoleSchema), createRole);
 roleRouter.get('/:id', authorize('ROLE_READ'), getRole);
-roleRouter.put('/:id', authorize('ROLE_WRITE'), validate(updateRoleSchema), updateRole);
-roleRouter.delete('/:id', authorize('ROLE_WRITE'), deleteRole);
+roleRouter.put('/:id', authorize('ROLE_MODIFY'), validate(updateRoleSchema), updateRole);
+roleRouter.delete('/:id', authorize('ROLE_DELETE'), deleteRole);
 
 roleRouter.get('/:id/members', authorize('ROLE_READ'), getMembers);
-roleRouter.post('/:id/members', authorize('ROLE_WRITE'), validate(assignMemberSchema), assignMember);
-roleRouter.delete('/:id/members/:employeeId', authorize('ROLE_WRITE'), removeMember);
+roleRouter.post('/:id/members', authorize('ROLE_CREATE'), validate(assignMemberSchema), assignMember);
+roleRouter.delete('/:id/members/:employeeId', authorize('ROLE_DELETE'), removeMember);
 
 module.exports = { roleRouter };

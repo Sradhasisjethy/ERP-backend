@@ -2,6 +2,7 @@ const { app } = require('./app');
 const { env } = require('./config/env');
 const { sequelize } = require('./config/database');
 const { logger } = require('./utils/logger');
+const { startScheduler, stopScheduler } = require('./jobs/scheduler');
 
 let httpServer;
 
@@ -15,6 +16,8 @@ const startServer = async () => {
       await sequelize.sync({ alter: true });
       logger.info('Database synchronized (alter mode).');
     }
+
+    startScheduler();
 
     httpServer = app.listen(env.PORT, () => {
       logger.info(`Server is running on port ${env.PORT}`);
@@ -30,9 +33,11 @@ const startServer = async () => {
 const shutdown = (signal) => {
   logger.info(`${signal} received, shutting down gracefully...`);
   if (!httpServer) {
+    stopScheduler();
     process.exit(0);
     return;
   }
+  stopScheduler();
   httpServer.close(async () => {
     try {
       await sequelize.close();

@@ -7,6 +7,7 @@ const { AdGroup } = require('../roles/role.model');
 const { AdGroupMember } = require('../roles/adGroupMember.model');
 const { env } = require('../../config/env');
 const { UnauthorizedError, NotFoundError, BadRequestError } = require('../../core/AppError');
+const { expandPermissions } = require('../../utils/permissionCatalog');
 const emailService = require('../../services/email.service');
 const { WebPermissions, SystemRoles } = require('../../utils/constants');
 
@@ -45,7 +46,7 @@ class AuthService {
       }
     }
 
-    return Array.from(permissions);
+    return expandPermissions(Array.from(permissions));
   }
 
   async generateAccessToken(user) {
