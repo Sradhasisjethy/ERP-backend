@@ -90,6 +90,14 @@ User.initScoped(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    resetPasswordToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    resetPasswordExpires: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     sequelize,
@@ -106,9 +114,16 @@ User.initScoped(
   }
 );
 
+const { Department } = require('../organization/department.model');
+const { Office } = require('../organization/office.model');
+const { Organization } = require('../organization/organization.model');
+
 User.belongsTo(User, { as: 'manager', foreignKey: 'managerId' });
 User.belongsTo(User, { as: 'hr', foreignKey: 'hrId' });
 User.belongsTo(User, { as: 'parent', foreignKey: 'parentId' });
 User.hasMany(User, { as: 'directReports', foreignKey: 'managerId' });
+User.belongsTo(Department, { foreignKey: 'departmentId' });
+User.belongsTo(Office, { foreignKey: 'officeId' });
+User.belongsTo(Organization, { foreignKey: 'organizationId' });
 
 module.exports = { User };

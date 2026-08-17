@@ -4,9 +4,10 @@ const { EmployeeStatus, EmployeeType, SystemRoles } = require('../../utils/const
 const createUserSchema = z.object({
   body: z.object({
     email: z.string().email(),
-    password: z.string().min(8),
+    password: z.string().min(8).optional(),
     firstName: z.string(),
     lastName: z.string(),
+    sendInvite: z.boolean().optional(),
     organizationId: z.string().uuid().optional(),
     officeId: z.string().uuid().optional(),
     departmentId: z.string().uuid().optional(),
