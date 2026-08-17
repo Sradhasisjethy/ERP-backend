@@ -75,14 +75,14 @@ const seedDatabase = async () => {
     ]);
     console.log(`Created ${offices.length} Offices`);
 
-    // d. 6 Departments
+    // d. 6 Departments with assigned Office locations
     const departmentsData = [
-      { name: 'Engineering', code: 'ENG' },
-      { name: 'Product', code: 'PROD' },
-      { name: 'Marketing', code: 'MKT' },
-      { name: 'Sales', code: 'SALES' },
-      { name: 'Human Resources', code: 'HR' },
-      { name: 'Finance', code: 'FIN' },
+      { name: 'Engineering', code: 'ENG', officeId: offices[2].get('id') }, // Bangalore Tech Hub
+      { name: 'Product', code: 'PROD', officeId: offices[0].get('id') }, // New York HQ
+      { name: 'Marketing', code: 'MKT', officeId: offices[0].get('id') }, // New York HQ
+      { name: 'Sales', code: 'SALES', officeId: offices[1].get('id') }, // London Office
+      { name: 'Human Resources', code: 'HR', officeId: offices[0].get('id') }, // New York HQ
+      { name: 'Finance', code: 'FIN', officeId: offices[1].get('id') }, // London Office
     ];
 
     const departments = await Promise.all(
@@ -90,8 +90,7 @@ const seedDatabase = async () => {
         Department.create({
           tenantId,
           organizationId,
-          name: d.name,
-          code: d.code,
+          ...d,
           status: 'active',
         })
       )

@@ -7,10 +7,12 @@ const enabled = env.RATE_LIMIT_ENABLED === 'true';
 
 const passthrough = (req, res, next) => next();
 
+const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV || true;
+
 const apiLimiter = enabled
   ? rateLimit({
       windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100, // limit each IP to 100 requests per windowMs
+      max: isDev ? 5000 : 100,
       message: 'Too many requests from this IP, please try again after 15 minutes',
       standardHeaders: true,
       legacyHeaders: false,
@@ -21,7 +23,7 @@ const apiLimiter = enabled
 const authLimiter = enabled
   ? rateLimit({
       windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 10, // limit each IP to 10 attempts per windowMs
+      max: isDev ? 1000 : 10,
       message:
         'Too many authentication attempts from this IP, please try again after 15 minutes',
       standardHeaders: true,

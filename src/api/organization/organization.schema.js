@@ -39,6 +39,7 @@ const updateOfficeSchema = z.object({
 
 const departmentBody = z.object({
   organizationId: z.string().uuid(),
+  officeId: z.string().uuid().optional(),
   name: z.string().min(1),
   code: z.string().optional(),
   parentId: z.string().uuid().optional(),
@@ -61,6 +62,7 @@ const listQuerySchema = z.object({
   search: z.string().optional(),
   status: z.enum(['active', 'inactive']).optional(),
   organizationId: z.string().uuid().optional(),
+  officeId: z.string().uuid().optional(),
 });
 
 module.exports = {

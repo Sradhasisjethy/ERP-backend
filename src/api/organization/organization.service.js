@@ -44,11 +44,18 @@ class OrganizationService {
     if (search) where.name = { [Op.iLike]: `%${search}%` };
     if (status) where.status = status;
 
-    return Office.findAndCountAll({ where, limit, offset });
+    return Office.findAndCountAll({
+      where,
+      limit,
+      offset,
+      include: [{ model: Organization, attributes: ['id', 'name', 'code'] }],
+    });
   }
 
   static async getOffice(id) {
-    const office = await Office.findByPk(id);
+    const office = await Office.findByPk(id, {
+      include: [{ model: Organization, attributes: ['id', 'name', 'code'] }],
+    });
     if (!office) throw new NotFoundError('Office not found');
     return office;
   }
@@ -69,10 +76,11 @@ class OrganizationService {
   }
 
   // --- Departments ---
-  static async listDepartments(page, limit, organizationId, search, status) {
+  static async listDepartments(page, limit, organizationId, officeId, search, status) {
     const offset = (page - 1) * limit;
     const where = {};
     if (organizationId) where.organizationId = organizationId;
+    if (officeId) where.officeId = officeId;
     if (search) where.name = { [Op.iLike]: `%${search}%` };
     if (status) where.status = status;
 
@@ -80,13 +88,20 @@ class OrganizationService {
       where,
       limit,
       offset,
-      include: [{ model: Department, as: 'subDepartments' }],
+      include: [
+        { model: Organization, attributes: ['id', 'name', 'code'] },
+        { model: Office, attributes: ['id', 'name', 'city', 'country'] },
+        { model: Department, as: 'subDepartments' },
+        { model: Department, as: 'parentDepartment', attributes: ['id', 'name', 'code'] },
+      ],
     });
   }
 
   static async getDepartment(id) {
     const dept = await Department.findByPk(id, {
       include: [
+        { model: Organization, attributes: ['id', 'name', 'code'] },
+        { model: Office, attributes: ['id', 'name', 'city', 'country'] },
         { model: Department, as: 'subDepartments' },
         { model: Department, as: 'parentDepartment' },
       ],

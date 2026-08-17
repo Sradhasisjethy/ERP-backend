@@ -1,7 +1,12 @@
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { User } = require('./user.model');
+const { Department } = require('../organization/department.model');
+const { Office } = require('../organization/office.model');
+const { Organization } = require('../organization/organization.model');
 const { NotFoundError } = require('../../core/AppError');
+const emailService = require('../../services/email.service');
 
 class UserService {
   async list(query) {
@@ -29,6 +34,9 @@ class UserService {
       include: [
         { model: User, as: 'manager', attributes: ['id', 'firstName', 'lastName', 'email'] },
         { model: User, as: 'hr', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { model: Department, attributes: ['id', 'name', 'code'] },
+        { model: Office, attributes: ['id', 'name', 'city', 'country'] },
+        { model: Organization, attributes: ['id', 'name', 'code'] },
       ],
       order: [['createdAt', 'DESC']],
     });
@@ -47,6 +55,9 @@ class UserService {
       include: [
         { model: User, as: 'manager', attributes: ['id', 'firstName', 'lastName', 'email'] },
         { model: User, as: 'hr', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { model: Department, attributes: ['id', 'name', 'code'] },
+        { model: Office, attributes: ['id', 'name', 'city', 'country'] },
+        { model: Organization, attributes: ['id', 'name', 'code'] },
       ],
     });
 
@@ -58,16 +69,42 @@ class UserService {
   }
 
   async create(data) {
-    const { password, ...rest } = data;
-    const passwordHash = await bcrypt.hash(password, 10);
+    const { password, sendInvite = true, ...rest } = data;
+    
+    // If password provided, hash it; otherwise generate random secure initial hash
+    const rawPassword = password || crypto.randomBytes(32).toString('hex');
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+
+    // Generate onboarding setup token (valid for 48 hours)
+    const setupToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(setupToken).digest('hex');
+    const resetPasswordExpires = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
     const user = await User.create({
       ...rest,
       passwordHash,
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires,
     });
+
+    // Send Welcome / Set Password Invitation Email
+    if (sendInvite || !password) {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const setupUrl = `${frontendUrl}/reset-password?token=${setupToken}`;
+
+      emailService.sendWelcomeInviteEmail({
+        email: user.email,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Team Member',
+        setupUrl,
+      }).catch((err) => {
+        console.error('[UserService] Failed to send welcome invitation email:', err.message);
+      });
+    }
 
     const userJson = user.toJSON();
     delete userJson.passwordHash;
+    delete userJson.resetPasswordToken;
+    delete userJson.resetPasswordExpires;
     return userJson;
   }
 

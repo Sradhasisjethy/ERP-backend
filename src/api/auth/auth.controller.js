@@ -60,4 +60,23 @@ const getMe = asyncHandler(async (req, res) => {
   sendSuccess(res, user);
 });
 
-module.exports = { login, refresh, logout, getMe };
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  const result = await authService.forgotPassword(email);
+  sendSuccess(res, result, 'Password reset process initialized');
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  const { token, newPassword } = req.body;
+  const result = await authService.resetPassword(token, newPassword);
+  sendSuccess(res, result, 'Password reset successful');
+});
+
+module.exports = {
+  login,
+  refresh,
+  logout,
+  getMe,
+  forgotPassword,
+  resetPassword,
+};
