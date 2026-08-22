@@ -1,4 +1,5 @@
 const { User } = require('../api/users/user.model');
+const { EmployeeDocument } = require('../api/users/employeeDocument.model');
 const { Tenant } = require('../api/organization/tenant.model');
 const { Organization } = require('../api/organization/organization.model');
 const { Office } = require('../api/organization/office.model');
@@ -159,6 +160,10 @@ User.belongsTo(Department, { foreignKey: 'departmentId' });
 User.hasMany(AdGroupMember, { foreignKey: 'employeeId' });
 AdGroupMember.belongsTo(User, { foreignKey: 'employeeId' });
 
+// EmployeeDocument associations
+User.hasMany(EmployeeDocument, { foreignKey: 'employeeId', as: 'documents' });
+EmployeeDocument.belongsTo(User, { foreignKey: 'employeeId' });
+
 // Factory / financial year / user-factory scoping (BR-29, M01)
 Factory.hasMany(UserFactory, { foreignKey: 'factoryId' });
 UserFactory.belongsTo(Factory, { foreignKey: 'factoryId' });
@@ -247,4 +252,5 @@ module.exports = {
   PurchaseIndent,
   PurchaseIndentLine,
   Notification,
+  EmployeeDocument,
 };
