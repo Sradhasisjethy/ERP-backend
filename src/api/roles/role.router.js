@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../../middlewares/auth');
 const { tenantScope } = require('../../middlewares/tenantScope');
+const { auditContext } = require('../../middlewares/auditContext');
 const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
 const {
@@ -23,7 +24,9 @@ const {
 
 const roleRouter = Router();
 
-roleRouter.use(authenticate, tenantScope);
+// auditContext must follow tenantScope — BR-30 requires role and
+// permission changes to name the user who made them.
+roleRouter.use(authenticate, tenantScope, auditContext);
 
 // Before '/:id' so the literal path isn't swallowed by the id route.
 roleRouter.get('/permission-catalog', authorize('ROLE_READ'), getPermissionCatalog);

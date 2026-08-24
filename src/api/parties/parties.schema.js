@@ -1,11 +1,25 @@
 const { z } = require('zod');
 
+/**
+ * 15 characters: 2-digit state code, the 10-character PAN of the holder, a
+ * 1-digit entity number, the literal 'Z', and a checksum character. Validated
+ * because the GSTIN is what GSTR-1/3B are filed against and what the
+ * place-of-supply state code is read from — a malformed one is not caught
+ * until the return is rejected, long after the invoice went out.
+ */
+const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+const gstin = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(GSTIN_PATTERN, 'GSTIN must be 15 characters, e.g. 21ABCDE1234F1Z5');
+
 const partyBody = z.object({
   partyType: z.enum(['CUSTOMER', 'VENDOR', 'CONTRACTOR', 'LABOUR', 'SALES_REF']),
   name: z.string().min(1),
   code: z.string().optional(),
-  gstin: z.string().optional(),
-  phone: z.string().optional(),
+  gstin: gstin.optional(),
+  phone: z.string().trim().min(6).max(20).optional(),
   email: z.string().email().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
@@ -31,7 +45,6 @@ const listQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   sortBy: z.string().trim().min(1).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-  search: z.string().optional(),
   status: z.enum(['active', 'inactive']).optional(),
   partyType: z.enum(['CUSTOMER', 'VENDOR', 'CONTRACTOR', 'LABOUR', 'SALES_REF']).optional(),
 });
@@ -49,7 +62,7 @@ const addressBody = z.object({
   stateCode: z.string().regex(/^\d{2}$/).optional(),
   pincode: z.string().optional(),
   country: z.string().optional(),
-  gstin: z.string().optional(),
+  gstin: gstin.optional(),
   isBilling: z.boolean().optional(),
   isShipping: z.boolean().optional(),
   isDefaultBilling: z.boolean().optional(),
@@ -60,4 +73,5 @@ const createAddressSchema = z.object({ body: addressBody });
 const updateAddressSchema = z.object({ body: addressBody.partial() });
 
 module.exports = {
+  GSTIN_PATTERN,
   createAddressSchema, updateAddressSchema, createPartySchema, updatePartySchema, upsertLabourWageProfileSchema, listQuerySchema };

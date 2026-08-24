@@ -7,8 +7,8 @@ const { maskRateFields } = require('../../utils/fieldMasking');
 
 // UoM
 const listUoms = asyncHandler(async (req, res) => {
-  const { page, limit, search, status } = req.query;
-  const data = await ProductsService.listUoms(Number(page), Number(limit), search, status);
+  const { page, limit, search, status, sortBy, sortDir } = req.query;
+  const data = await ProductsService.listUoms(Number(page), Number(limit), search, status, { sortBy, sortDir });
   sendList(res, req, data, 'UoMs retrieved successfully');
 });
 const getUom = asyncHandler(async (req, res) => {
@@ -27,8 +27,8 @@ const deleteUom = asyncHandler(async (req, res) => {
 
 // Product Category
 const listProductCategories = asyncHandler(async (req, res) => {
-  const { page, limit, search, status } = req.query;
-  const data = await ProductsService.listProductCategories(Number(page), Number(limit), search, status);
+  const { page, limit, search, status, sortBy, sortDir } = req.query;
+  const data = await ProductsService.listProductCategories(Number(page), Number(limit), search, status, { sortBy, sortDir });
   sendList(res, req, data, 'Product categories retrieved successfully');
 });
 const getProductCategory = asyncHandler(async (req, res) => {
@@ -47,8 +47,8 @@ const deleteProductCategory = asyncHandler(async (req, res) => {
 
 // HSN Code
 const listHsnCodes = asyncHandler(async (req, res) => {
-  const { page, limit, search, status } = req.query;
-  const data = await ProductsService.listHsnCodes(Number(page), Number(limit), search, status);
+  const { page, limit, search, status, sortBy, sortDir } = req.query;
+  const data = await ProductsService.listHsnCodes(Number(page), Number(limit), search, status, { sortBy, sortDir });
   sendList(res, req, data, 'HSN codes retrieved successfully');
 });
 const getHsnCode = asyncHandler(async (req, res) => {
@@ -67,8 +67,8 @@ const deleteHsnCode = asyncHandler(async (req, res) => {
 
 // Product — standardCostPaise is masked per BR-27 for users without VIEW_RATES.
 const listProducts = asyncHandler(async (req, res) => {
-  const { page, limit, search, status, categoryId, productType } = req.query;
-  const data = await ProductsService.listProducts(Number(page), Number(limit), { search, status, categoryId, productType });
+  const { page, limit, search, status, categoryId, productType, sortBy, sortDir } = req.query;
+  const data = await ProductsService.listProducts(Number(page), Number(limit), { search, status, categoryId, productType, sortBy, sortDir });
   sendList(res, req, maskRateFields(data, req), 'Products retrieved successfully');
 });
 const getProduct = asyncHandler(async (req, res) => {
@@ -88,8 +88,8 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
 // Mix Design (BOM)
 const listMixDesigns = asyncHandler(async (req, res) => {
-  const { page, limit, productId, search } = req.query;
-  const data = await BomService.list(Number(page), Number(limit), { productId, search });
+  const { page, limit, productId, search, status, sortBy, sortDir } = req.query;
+  const data = await BomService.list(Number(page), Number(limit), { productId, search, status, sortBy, sortDir });
   sendList(res, req, data, 'Mix designs retrieved successfully');
 });
 const getMixDesign = asyncHandler(async (req, res) => {
@@ -124,8 +124,8 @@ const mixDesignCost = asyncHandler(async (req, res) => {
 
 // --- UoM conversions (FR-M03-2) ---
 const listUomConversions = asyncHandler(async (req, res) => {
-  const { page, limit, search, status } = req.query;
-  sendList(res, req, await UomService.list(Number(page), Number(limit), { search, status }), 'UoM conversions retrieved successfully');
+  const { page, limit, search, status, sortBy, sortDir } = req.query;
+  sendList(res, req, await UomService.list(Number(page), Number(limit), { search, status, sortBy, sortDir }), 'UoM conversions retrieved successfully');
 });
 const createUomConversion = asyncHandler(async (req, res) => {
   sendSuccess(res, await UomService.create(req.body), 'UoM conversion created successfully', 201);

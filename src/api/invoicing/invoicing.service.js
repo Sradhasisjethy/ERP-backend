@@ -34,10 +34,9 @@ const roundToRupee = (paise) => {
 };
 
 class InvoicingService {
-  static async listInvoices(page, limit, { factoryId, customerPartyId, status, search } = {}) {
+  static async listInvoices(page, limit, { customerPartyId, status, search, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
     if (status) where.status = status;
 
@@ -207,6 +206,21 @@ class InvoicingService {
     const invoice = await this.getInvoice(id);
     if (invoice.status !== 'POSTED') throw new ValidationError(`Only a POSTED invoice can be cancelled (current status: ${invoice.status})`);
     if (!reason) throw new ValidationError('A cancellation reason is required');
+
+    // Cancelling reverses the receivable this invoice raised. If a receipt has
+    // already been allocated to it, that receipt's credit stays behind and the
+    // customer's ledger ends up showing money we never owed them — the account
+    // goes negative and receivables stop reconciling. The receipt has to be
+    // cancelled (or re-allocated) first; a credit note is the correct
+    // instrument for reversing an invoice that has genuinely been paid.
+    const { getInvoiceAllocatedAmount } = require('../payments/payments.service');
+    const allocated = await getInvoiceAllocatedAmount('SALES', invoice.id);
+    if (allocated > 0) {
+      throw new ValidationError(
+        `This invoice cannot be cancelled — ${allocated} paise has been received against it. ` +
+          'Cancel or re-allocate the receipt first, or raise a credit note instead.'
+      );
+    }
 
     return sequelize.transaction(async (transaction) => {
       const originalEntry = await JournalEntry.findOne({

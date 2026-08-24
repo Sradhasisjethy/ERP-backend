@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../../middlewares/auth');
 const { tenantScope } = require('../../middlewares/tenantScope');
+const { auditContext } = require('../../middlewares/auditContext');
 const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
 const {
@@ -33,7 +34,9 @@ const {
 const organizationRouter = Router();
 
 // Apply global middlewares
-organizationRouter.use(authenticate, tenantScope);
+// auditContext must follow tenantScope — it writes into the CLS session
+// tenantScope opens, and without it BR-30 rows carry a null user.
+organizationRouter.use(authenticate, tenantScope, auditContext);
 
 // Organizations
 organizationRouter.get('/organizations', authorize('ORG_READ'), validate(listQuerySchema, 'query'), listOrganizations);

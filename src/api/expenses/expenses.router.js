@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../../middlewares/auth');
 const { tenantScope } = require('../../middlewares/tenantScope');
+const { enforceFactoryScope } = require('../../middlewares/factoryScope');
 const { auditContext } = require('../../middlewares/auditContext');
 const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
@@ -9,7 +10,8 @@ const schema = require('./expenses.schema');
 
 const expensesRouter = Router();
 
-expensesRouter.use(authenticate, tenantScope, auditContext);
+// BR-29: refuse any request naming a factory this user cannot access.
+expensesRouter.use(authenticate, tenantScope, auditContext, enforceFactoryScope);
 
 expensesRouter.get('/', authorize('EXPENSE_READ'), validate(schema.listQuerySchema, 'query'), controller.list);
 expensesRouter.post('/', authorize('EXPENSE_CREATE'), validate(schema.createExpenseSchema), controller.createExpense);

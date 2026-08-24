@@ -76,7 +76,7 @@ defineReport({
           (SELECT COALESCE(SUM(si."totalPaise"), 0) FROM sales_invoices si
             WHERE si."tenantId" = ${tenantParam} AND si."status" = 'POSTED'${factory('si."factoryId"')}${window('si."invoiceDate"')}) AS "salesPaise",
           (SELECT COALESCE(SUM(pi."amountPaise"), 0) FROM purchase_invoices pi
-            WHERE pi."tenantId" = ${tenantParam}${factory('pi."factoryId"')}${window('pi."invoiceDate"')}) AS "purchasePaise",
+            WHERE pi."tenantId" = ${tenantParam} AND pi."status" = 'POSTED'${factory('pi."factoryId"')}${window('pi."invoiceDate"')}) AS "purchasePaise",
           (SELECT COALESCE(SUM(pe."goodQty"), 0) FROM production_entries pe
             WHERE pe."tenantId" = ${tenantParam} AND pe."status" = 'POSTED'${factory('pe."factoryId"')}${window('pe."productionDate"')}) AS "productionQty",
           (SELECT COUNT(*)::int FROM delivery_challans dc
@@ -200,7 +200,7 @@ defineReport({
         LEFT JOIN LATERAL (
           SELECT COALESCE(SUM(pi."amountPaise"), 0) AS "purchasePaise"
           FROM purchase_invoices pi
-          WHERE pi."factoryId" = f.id${window('pi."invoiceDate"')}
+          WHERE pi."factoryId" = f.id AND pi."status" = 'POSTED'${window('pi."invoiceDate"')}
         ) pur ON TRUE
         LEFT JOIN LATERAL (
           SELECT COALESCE(SUM(pe."goodQty"), 0) AS "productionQty"

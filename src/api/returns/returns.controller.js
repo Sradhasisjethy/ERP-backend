@@ -1,4 +1,5 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { scopeListToFactories } = require('../../core/salesScope');
 const { ReturnsService } = require('./returns.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
@@ -6,7 +7,8 @@ const { maskRateFields } = require('../../utils/fieldMasking');
 // Sales Return
 const listSalesReturns = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, customerPartyId, search } = req.query;
-  const data = await ReturnsService.listSalesReturns(Number(page), Number(limit), { factoryId, customerPartyId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ReturnsService.listSalesReturns(Number(page), Number(limit), { customerPartyId, search, baseWhere });
   sendList(res, req, maskRateFields(data, req), 'Sales returns retrieved successfully');
 });
 const getSalesReturn = asyncHandler(async (req, res) => {
@@ -22,7 +24,8 @@ const cancelSalesReturn = asyncHandler(async (req, res) => {
 // Purchase Return
 const listPurchaseReturns = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, vendorPartyId, search } = req.query;
-  const data = await ReturnsService.listPurchaseReturns(Number(page), Number(limit), { factoryId, vendorPartyId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ReturnsService.listPurchaseReturns(Number(page), Number(limit), { vendorPartyId, search, baseWhere });
   sendList(res, req, maskRateFields(data, req), 'Purchase returns retrieved successfully');
 });
 const getPurchaseReturn = asyncHandler(async (req, res) => {
@@ -38,7 +41,8 @@ const cancelPurchaseReturn = asyncHandler(async (req, res) => {
 // Credit Note
 const listCreditNotes = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, customerPartyId, search } = req.query;
-  const data = await ReturnsService.listCreditNotes(Number(page), Number(limit), { factoryId, customerPartyId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ReturnsService.listCreditNotes(Number(page), Number(limit), { customerPartyId, search, baseWhere });
   sendList(res, req, maskRateFields(data, req), 'Credit notes retrieved successfully');
 });
 const getCreditNote = asyncHandler(async (req, res) => {
@@ -54,7 +58,8 @@ const cancelCreditNote = asyncHandler(async (req, res) => {
 // Debit Note
 const listDebitNotes = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, vendorPartyId, search } = req.query;
-  const data = await ReturnsService.listDebitNotes(Number(page), Number(limit), { factoryId, vendorPartyId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ReturnsService.listDebitNotes(Number(page), Number(limit), { vendorPartyId, search, baseWhere });
   sendList(res, req, maskRateFields(data, req), 'Debit notes retrieved successfully');
 });
 const getDebitNote = asyncHandler(async (req, res) => {

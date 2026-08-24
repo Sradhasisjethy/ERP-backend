@@ -127,7 +127,12 @@ class LedgerService {
     return Number(result.debit) - Number(result.credit);
   }
 
-  static async getTrialBalance(factoryId) {
+  /**
+   * @param {string}   [factoryId]        an explicit ?factoryId= filter
+   * @param {string[]|null} [allowedFactoryIds] the caller's BR-29 restriction;
+   *        null means unrestricted (platform/tenant admin)
+   */
+  static async getTrialBalance(factoryId, allowedFactoryIds = null) {
     const rows = await JournalLine.findAll({
       attributes: [
         'accountId',
@@ -135,7 +140,14 @@ class LedgerService {
         [fn('COALESCE', fn('SUM', col('JournalLine.creditPaise')), 0), 'totalCredit'],
       ],
       include: [
-        { model: JournalEntry, as: 'journalEntry', attributes: [], where: factoryId ? { factoryId } : undefined, required: true },
+        {
+          model: JournalEntry, as: 'journalEntry', attributes: [], required: true,
+          where: factoryId
+            ? { factoryId }
+            : allowedFactoryIds
+              ? { factoryId: { [Op.in]: allowedFactoryIds.length ? allowedFactoryIds : ['00000000-0000-0000-0000-000000000000'] } }
+              : undefined,
+        },
         { model: Account, as: 'account', attributes: ['code', 'name', 'type'] },
       ],
       group: ['accountId', 'account.id', 'account.code', 'account.name', 'account.type'],
@@ -154,8 +166,40 @@ class LedgerService {
   }
 
   // Party statement + running balance (AR for customers, AP for vendors/contractors/labour).
+  /**
+   * Party types whose control account is a liability, so what is owed shows as
+   * a credit. Kept here as the single definition both the statement and the
+   * outstanding figure read, and matching the RECEIVABLE / PAYABLE split the
+   * reports module applies (reports/definitions/parties.js).
+   */
+  static PAYABLE_PARTY_TYPES = ['VENDOR', 'CONTRACTOR', 'LABOUR'];
+
+  static async isPayableParty(partyId) {
+    const { Party } = require('../parties/party.model');
+    const party = await Party.findByPk(partyId, { attributes: ['partyType'] });
+    return !!party && this.PAYABLE_PARTY_TYPES.includes(party.partyType);
+  }
+
+  /**
+   * A party statement: every posting against them, oldest first, each line
+   * carrying the balance as it stood after that posting.
+   *
+   * Three things this has to get right that the previous version did not:
+   *
+   *  - **Order.** It returned newest-first. A statement reads forward, and a
+   *    running balance computed over a descending list is meaningless.
+   *  - **The opening balance.** Page 2 of a statement has to start from where
+   *    page 1 ended, so the balance before the page is summed separately
+   *    rather than assumed to be zero.
+   *  - **The sign.** See `getPartyOutstanding` — a payable is credit − debit.
+   *    Running the same subtraction for both party types made every vendor
+   *    statement read negative.
+   */
   static async getPartyLedger(partyId, { page = 1, limit = 50 } = {}) {
     const offset = (page - 1) * limit;
+    const payable = await this.isPayableParty(partyId);
+    const signed = (debit, credit) => (payable ? credit - debit : debit - credit);
+
     const { rows, count } = await JournalLine.findAndCountAll({
       where: { partyId },
       limit,
@@ -164,11 +208,58 @@ class LedgerService {
         { model: JournalEntry, as: 'journalEntry' },
         { model: Account, as: 'account', attributes: ['code', 'name'] },
       ],
-      order: [[{ model: JournalEntry, as: 'journalEntry' }, 'entryDate', 'DESC'], [{ model: JournalEntry, as: 'journalEntry' }, 'createdAt', 'DESC']],
+      order: [
+        [{ model: JournalEntry, as: 'journalEntry' }, 'entryDate', 'ASC'],
+        [{ model: JournalEntry, as: 'journalEntry' }, 'createdAt', 'ASC'],
+        ['id', 'ASC'],
+      ],
     });
-    return { rows, count };
+
+    // Everything that happened before this page, so the running balance
+    // continues rather than restarting.
+    let openingBalancePaise = 0;
+    if (offset > 0) {
+      const earlier = await JournalLine.findAll({
+        where: { partyId },
+        limit: offset,
+        offset: 0,
+        include: [{ model: JournalEntry, as: 'journalEntry', attributes: [] }],
+        order: [
+          [{ model: JournalEntry, as: 'journalEntry' }, 'entryDate', 'ASC'],
+          [{ model: JournalEntry, as: 'journalEntry' }, 'createdAt', 'ASC'],
+          ['id', 'ASC'],
+        ],
+      });
+      openingBalancePaise = earlier.reduce((sum, l) => sum + signed(Number(l.debitPaise), Number(l.creditPaise)), 0);
+    }
+
+    let running = openingBalancePaise;
+    const withBalance = rows.map((line) => {
+      running += signed(Number(line.debitPaise), Number(line.creditPaise));
+      return { ...line.toJSON(), runningBalancePaise: running };
+    });
+
+    return { rows: withBalance, count, openingBalancePaise, closingBalancePaise: running };
   }
 
+  /**
+   * What this party owes, or is owed, signed the way a statement reads:
+   * positive always means money is outstanding.
+   *
+   * The sign is not symmetric between party types. A customer posts against
+   * ACCOUNTS_RECEIVABLE — the invoice debits, the receipt credits — so what
+   * they owe is debit − credit. A vendor, contractor or labourer posts against
+   * ACCOUNTS_PAYABLE, where the liability *credits* when they earn and debits
+   * when they are paid, so the same expression returns the negation of what we
+   * owe them.
+   *
+   * This endpoint applied `debit − credit` to everyone, so every vendor,
+   * contractor and labour statement showed a negative outstanding balance
+   * while the payables report — which has always had the split right — showed
+   * the same figure positive. Two conventions for the same number in one
+   * system is a reconciliation failure, and the statement convention is the
+   * one that matches how the number is read.
+   */
   static async getPartyOutstanding(partyId) {
     const result = await JournalLine.findOne({
       attributes: [
@@ -178,15 +269,36 @@ class LedgerService {
       where: { partyId },
       raw: true,
     });
-    // Positive = they owe us (AR) or we owe them less (AP net debit); the
-    // sign convention is the same either way since each party only ever
-    // posts against their own single control account (AR *or* AP per type).
-    return Number(result.debit) - Number(result.credit);
+
+    const debit = Number(result.debit);
+    const credit = Number(result.credit);
+    return (await this.isPayableParty(partyId)) ? credit - debit : debit - credit;
   }
 
   // BR-21/M29: factory-wise cash book / day book.
+  /**
+   * Cash (or bank) movement for a factory over a window, with the balance
+   * carried forward.
+   *
+   * Two corrections over the previous version:
+   *
+   *  - **It read `entry.lines[0]`,** i.e. one cash line per journal. A receipt
+   *    taken partly in two cash tenders posts two cash lines on the same
+   *    journal, so only the first was counted and the day's cash was
+   *    understated with no error anywhere. Every cash line on the entry is
+   *    now summed.
+   *  - **The running balance started at zero** however the window was
+   *    filtered, so `opening + in − out = closing` was wrong by everything
+   *    that happened before `from`. The opening balance is now the account's
+   *    real position on the day the window starts.
+   */
   static async getCashBook(factoryId, { from, to, accountKey = 'CASH' } = {}) {
     const account = await this.getOrCreateSystemAccount(accountKey);
+
+    const openingBalancePaise = from
+      ? await this.getAccountBalanceBefore(account.id, factoryId, from)
+      : 0;
+
     const where = { entryDate: {} };
     if (from) where.entryDate[Op.gte] = from;
     if (to) where.entryDate[Op.lte] = to;
@@ -198,21 +310,50 @@ class LedgerService {
       order: [['entryDate', 'ASC'], ['createdAt', 'ASC']],
     });
 
-    let runningBalance = 0;
-    return entries.map((entry) => {
-      const line = entry.lines[0];
-      runningBalance += Number(line.debitPaise) - Number(line.creditPaise);
+    let runningBalance = openingBalancePaise;
+    const rows = entries.map((entry) => {
+      // Sum every line on this entry that touches the account — not just one.
+      const debitPaise = entry.lines.reduce((sum, l) => sum + Number(l.debitPaise), 0);
+      const creditPaise = entry.lines.reduce((sum, l) => sum + Number(l.creditPaise), 0);
+      runningBalance += debitPaise - creditPaise;
       return {
         entryId: entry.id,
         date: entry.entryDate,
         narration: entry.narration,
         referenceType: entry.referenceType,
         referenceId: entry.referenceId,
-        debitPaise: Number(line.debitPaise),
-        creditPaise: Number(line.creditPaise),
+        debitPaise,
+        creditPaise,
         runningBalancePaise: runningBalance,
       };
     });
+
+    return {
+      accountCode: account.code,
+      accountName: account.name,
+      openingBalancePaise,
+      closingBalancePaise: runningBalance,
+      totalInPaise: rows.reduce((s, r) => s + r.debitPaise, 0),
+      totalOutPaise: rows.reduce((s, r) => s + r.creditPaise, 0),
+      rows,
+    };
+  }
+
+  /** The account's balance at a factory immediately before `date`. */
+  static async getAccountBalanceBefore(accountId, factoryId, date) {
+    const result = await JournalLine.findOne({
+      attributes: [
+        [fn('COALESCE', fn('SUM', col('JournalLine.debitPaise')), 0), 'debit'],
+        [fn('COALESCE', fn('SUM', col('JournalLine.creditPaise')), 0), 'credit'],
+      ],
+      where: { accountId },
+      include: [{
+        model: JournalEntry, as: 'journalEntry', attributes: [], required: true,
+        where: { entryDate: { [Op.lt]: date }, ...(factoryId ? { factoryId } : {}) },
+      }],
+      raw: true,
+    });
+    return Number(result.debit) - Number(result.credit);
   }
 
   static async listAccounts() {

@@ -5,7 +5,10 @@ const { MixDesignLine } = require('./mixDesignLine.model');
 const { Product } = require('./product.model');
 const { Uom } = require('./uom.model');
 const { UomService } = require('./uom.service');
+const { toOrder } = require('../../utils/pagination');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
+
+const SORTABLE = ['name', 'version', 'status', 'effectiveFrom', 'createdAt'];
 
 const withLines = {
   include: [
@@ -29,7 +32,7 @@ class BomService {
     return bom;
   }
 
-  static async list(page, limit, { productId, status, search } = {}) {
+  static async list(page, limit, { productId, status, search, sortBy, sortDir } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
     if (productId) where.productId = productId;
@@ -41,8 +44,94 @@ class BomService {
       limit,
       offset,
       ...withLines,
-      order: [['productId', 'ASC'], ['version', 'DESC']],
+      order: toOrder(sortBy, sortDir, SORTABLE, [['productId', 'ASC'], ['version', 'DESC']]),
     });
+  }
+
+  /**
+   * FR-M03-4: a BOM may not consume, directly or through any depth of
+   * sub-assembly, the product it produces.
+   *
+   * Without this a recipe can name its own output as an input. Nothing stops
+   * it being saved, and the damage lands later and far away: `explode()`
+   * recurses forever on a nested BOM, the cost rollup never terminates, and a
+   * production entry against the recipe books a consumption of the very good
+   * it is creating — so the stock ledger nets to nonsense and the variance
+   * report blames the operator.
+   *
+   * The walk is breadth-first over the *active* recipe of each component,
+   * which is the version production will actually resolve. `visited` bounds it
+   * even if a cycle already exists in data written before this check.
+   *
+   * @param {string} outputProductId - the product this BOM produces
+   * @param {string[]} componentIds   - the product ids on its lines
+   */
+  static async assertNoCycle(outputProductId, componentIds, transaction) {
+    if (componentIds.includes(outputProductId)) {
+      throw new ValidationError('A bill of materials cannot list the product it produces as one of its own components');
+    }
+
+    const visited = new Set([outputProductId]);
+    let frontier = [...new Set(componentIds)];
+
+    while (frontier.length) {
+      const unseen = frontier.filter((id) => !visited.has(id));
+      if (!unseen.length) break;
+      unseen.forEach((id) => visited.add(id));
+
+      const subAssemblies = await MixDesign.findAll({
+        where: { productId: { [Op.in]: unseen }, status: { [Op.in]: ['ACTIVE', 'SUPERSEDED'] } },
+        include: [{ model: MixDesignLine, as: 'lines', attributes: ['rawMaterialProductId'] }],
+        transaction,
+      });
+
+      const next = [];
+      for (const bom of subAssemblies) {
+        for (const line of bom.lines) {
+          if (line.rawMaterialProductId === outputProductId) {
+            const culprit = await Product.findByPk(bom.productId, { attributes: ['name'], transaction });
+            throw new ValidationError(
+              `That would create a circular bill of materials — "${culprit ? culprit.name : 'a component'}" already depends on this product`
+            );
+          }
+          next.push(line.rawMaterialProductId);
+        }
+      }
+      frontier = next;
+    }
+  }
+
+  /**
+   * Validates the component lines themselves: every raw material must resolve
+   * inside this tenant (the tenant-scoped find is what makes a foreign id from
+   * another tenant fail), each may appear only once, and each must be active.
+   */
+  static async assertLinesValid(productId, lines, transaction) {
+    const ids = lines.map((l) => l.rawMaterialProductId);
+
+    const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
+    if (duplicate) {
+      const product = await Product.findByPk(duplicate, { attributes: ['name'], transaction });
+      throw new ValidationError(
+        `"${product ? product.name : 'A component'}" appears more than once — combine the lines into a single quantity`
+      );
+    }
+
+    const products = await Product.findAll({ where: { id: { [Op.in]: [...new Set(ids)] } }, transaction });
+    if (products.length !== new Set(ids).size) {
+      throw new ValidationError('One or more component lines reference a product that does not exist');
+    }
+    const inactive = products.filter((p) => p.status !== 'active');
+    if (inactive.length) {
+      throw new ValidationError(`${inactive.map((p) => `"${p.name}"`).join(', ')} is inactive and cannot be added to a bill of materials`);
+    }
+
+    const uomIds = [...new Set(lines.map((l) => l.uomId).filter(Boolean))];
+    if (uomIds.length && (await Uom.count({ where: { id: { [Op.in]: uomIds } } })) !== uomIds.length) {
+      throw new ValidationError('One or more component lines reference a unit of measure that does not exist');
+    }
+
+    await this.assertNoCycle(productId, ids, transaction);
   }
 
   /**
@@ -99,6 +188,11 @@ class BomService {
 
   static async createDraft({ productId, name, lines, effectiveFrom, outputQuantity = 1, bomType = 'MANUFACTURING' }) {
     return sequelize.transaction(async (transaction) => {
+      if (!(await Product.count({ where: { id: productId }, transaction }))) {
+        throw new ValidationError('The product this bill of materials is for does not exist');
+      }
+      await this.assertLinesValid(productId, lines, transaction);
+
       const latest = await MixDesign.findOne({
         where: { productId },
         order: [['version', 'DESC']],
@@ -142,6 +236,7 @@ class BomService {
 
       if (lines) {
         if (!lines.length) throw new ValidationError('A mix design requires at least one component line');
+        await this.assertLinesValid(bom.productId, lines, transaction);
         await MixDesignLine.destroy({ where: { mixDesignId: id }, transaction });
         await MixDesignLine.bulkCreate(
           lines.map((line) => ({
@@ -174,8 +269,12 @@ class BomService {
         throw new ValidationError('A superseded mix design cannot be reactivated — create a new version from it instead');
       }
 
-      const lineCount = await MixDesignLine.count({ where: { mixDesignId: id }, transaction });
-      if (!lineCount) throw new ValidationError('A mix design with no component lines cannot be activated');
+      const lines = await MixDesignLine.findAll({ where: { mixDesignId: id }, attributes: ['rawMaterialProductId'], transaction });
+      if (!lines.length) throw new ValidationError('A mix design with no component lines cannot be activated');
+      // Re-checked here, not just on write: another product's BOM may have
+      // been activated since this draft was saved, closing a loop that did not
+      // exist at the time. Activation is the moment production starts using it.
+      await this.assertNoCycle(bom.productId, lines.map((l) => l.rawMaterialProductId), transaction);
 
       const current = await MixDesign.findOne({ where: { productId: bom.productId, status: 'ACTIVE' }, transaction });
       if (current) {

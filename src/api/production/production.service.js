@@ -60,10 +60,9 @@ class ProductionService {
     });
   }
 
-  static async listPlans(page, limit, { factoryId, status, search } = {}) {
+  static async listPlans(page, limit, { status, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (status) where.status = status;
 
     if (search) Object.assign(where, searchWhere(search, ['planNumber']));
@@ -102,10 +101,9 @@ class ProductionService {
   }
 
   // --- BR-06..BR-10: Production Entry (casting) ---
-  static async listEntries(page, limit, { factoryId, productId, status, search } = {}) {
+  static async listEntries(page, limit, { productId, status, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (productId) where.productId = productId;
     if (status) where.status = status;
 
@@ -268,10 +266,9 @@ class ProductionService {
   }
 
   // --- M11: Wastage ---
-  static async listWastage(page, limit, { factoryId, productId, stage } = {}) {
+  static async listWastage(page, limit, { productId, stage , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (productId) where.productId = productId;
     if (stage) where.stage = stage;
 

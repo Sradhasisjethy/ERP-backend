@@ -1,14 +1,14 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
-const { BaseScopedModel } = require('../../core/BaseModel');
+const { BaseAuditedModel } = require('../../core/AuditedModel');
 const { Office } = require('./office.model');
 
 /**
  * Department model representing hierarchical departments.
  */
-class Department extends BaseScopedModel {}
+class Department extends BaseAuditedModel {}
 
-Department.initScoped(
+Department.initAudited(
   {
     id: {
       type: DataTypes.UUID,

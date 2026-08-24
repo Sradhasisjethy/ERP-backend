@@ -1,10 +1,10 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
-const { BaseScopedModel } = require('../../core/BaseModel');
+const { BaseAuditedModel } = require('../../core/AuditedModel');
 
-class HsnCode extends BaseScopedModel {}
+class HsnCode extends BaseAuditedModel {}
 
-HsnCode.initScoped(
+HsnCode.initAudited(
   {
     id: {
       type: DataTypes.UUID,

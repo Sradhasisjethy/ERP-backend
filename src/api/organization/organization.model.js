@@ -1,13 +1,13 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
-const { BaseScopedModel } = require('../../core/BaseModel');
+const { BaseAuditedModel } = require('../../core/AuditedModel');
 
 /**
  * Organization model representing a company/entity within a tenant.
  */
-class Organization extends BaseScopedModel {}
+class Organization extends BaseAuditedModel {}
 
-Organization.initScoped(
+Organization.initAudited(
   {
     id: {
       type: DataTypes.UUID,

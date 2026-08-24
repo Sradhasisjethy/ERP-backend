@@ -1,4 +1,5 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { scopeListToFactories } = require('../../core/salesScope');
 const { ProductionService } = require('./production.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 
@@ -9,7 +10,8 @@ const generateProposal = asyncHandler(async (req, res) => {
 });
 const listPlans = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, status, search } = req.query;
-  const data = await ProductionService.listPlans(Number(page), Number(limit), { factoryId, status, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ProductionService.listPlans(Number(page), Number(limit), { status, search, baseWhere });
   sendList(res, req, data, 'Production plans retrieved successfully');
 });
 const getPlan = asyncHandler(async (req, res) => {
@@ -24,7 +26,8 @@ const confirmPlan = asyncHandler(async (req, res) => {
 // Production Entry
 const listEntries = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, productId, status, search } = req.query;
-  const data = await ProductionService.listEntries(Number(page), Number(limit), { factoryId, productId, status, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ProductionService.listEntries(Number(page), Number(limit), { productId, status, search, baseWhere });
   sendList(res, req, data, 'Production entries retrieved successfully');
 });
 const getEntry = asyncHandler(async (req, res) => {
@@ -39,7 +42,8 @@ const createEntry = asyncHandler(async (req, res) => {
 // Variance approval
 const listPendingApprovals = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, search } = req.query;
-  const data = await ProductionService.listPendingApprovals(Number(page), Number(limit), { factoryId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ProductionService.listPendingApprovals(Number(page), Number(limit), { search, baseWhere });
   sendList(res, req, data, 'Pending variance approvals retrieved successfully');
 });
 const approveVariance = asyncHandler(async (req, res) => {
@@ -50,7 +54,8 @@ const approveVariance = asyncHandler(async (req, res) => {
 // Wastage
 const listWastage = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, productId, stage, search } = req.query;
-  const data = await ProductionService.listWastage(Number(page), Number(limit), { factoryId, productId, stage, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ProductionService.listWastage(Number(page), Number(limit), { productId, stage, search, baseWhere });
   sendList(res, req, data, 'Wastage records retrieved successfully');
 });
 const createWastage = asyncHandler(async (req, res) => {
