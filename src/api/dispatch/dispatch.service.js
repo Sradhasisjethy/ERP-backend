@@ -36,10 +36,9 @@ const recomputeSalesOrderStatus = async (salesOrder, transaction) => {
 };
 
 class DispatchService {
-  static async listChallans(page, limit, { factoryId, salesOrderId, status, search } = {}) {
+  static async listChallans(page, limit, { salesOrderId, status, search, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (salesOrderId) where.salesOrderId = salesOrderId;
     if (status) where.status = status;
 
@@ -73,11 +72,17 @@ class DispatchService {
     if (!lines || !lines.length) throw new ValidationError('A delivery challan requires at least one line');
 
     return sequelize.transaction(async (transaction) => {
-      const salesOrder = await SalesOrder.findByPk(salesOrderId, {
-        include: [{ model: SalesOrderLine, as: 'lines' }],
-        transaction,
-      });
+      // FOR UPDATE on the order: two dispatches against the same order used to
+      // read dispatchedQty concurrently, both see 0, both pass the BR-14
+      // tolerance check and both write their own total — so 60 + 60 against a
+      // 100 order left the line reading 60 while 120 units physically shipped.
+      // Serialising on the order row makes the second dispatch read the first
+      // one's committed quantity, so the tolerance check is the real check.
+      const salesOrder = await SalesOrder.findByPk(salesOrderId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!salesOrder) throw new NotFoundError('Sales order not found');
+      // Reload lines after the lock — they must reflect any dispatch that
+      // committed while this transaction was waiting for it.
+      salesOrder.lines = await SalesOrderLine.findAll({ where: { salesOrderId }, transaction });
       if (!ACTIVE_ORDER_STATUSES.includes(salesOrder.status)) {
         throw new ValidationError(`Cannot dispatch against a sales order in ${salesOrder.status} status`);
       }

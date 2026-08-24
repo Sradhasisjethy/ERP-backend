@@ -31,21 +31,44 @@ const validateModes = (modes, totalAmountPaise) => {
   }
 };
 
-// BR-20: how much of an invoice's total is already covered by POSTED
-// receipts/payments — the rest is what allocation may still draw against.
-const getInvoiceAllocatedAmount = async (invoiceType, invoiceId, { excludeReceiptId, excludePaymentId, transaction } = {}) => {
-  const where = { invoiceType, invoiceId };
+/**
+ * BR-20: how much of an invoice's total is already covered by POSTED
+ * receipts/payments — the rest is what allocation may still draw against.
+ *
+ * Summed as two separate INNER-JOIN queries rather than one query with both
+ * parents joined. With `required: false` on both, Sequelize emits two LEFT
+ * JOINs and puts the `status = 'POSTED'` test in the ON clause, so an
+ * allocation whose receipt had been CANCELLED was not filtered out at all — it
+ * simply came back with null receipt columns and its amount was still summed.
+ *
+ * The effect was that cancelling a receipt never released the invoice: the
+ * money was reversed in the ledger, but the invoice still looked fully paid
+ * and a corrected receipt was rejected with "allocation exceeds the
+ * outstanding balance". An INNER JOIN per parent type drops the cancelled rows
+ * properly.
+ */
+const sumAllocations = async (model, alias, invoiceType, invoiceId, exclude, transaction) => {
   const result = await PaymentAllocation.findOne({
     attributes: [[fn('COALESCE', fn('SUM', col('PaymentAllocation.allocatedAmountPaise')), 0), 'total']],
-    where,
+    where: { invoiceType, invoiceId },
     include: [
-      { model: Receipt, as: 'receipt', attributes: [], required: false, where: { status: 'POSTED', ...(excludeReceiptId ? { id: { [Op.ne]: excludeReceiptId } } : {}) } },
-      { model: Payment, as: 'payment', attributes: [], required: false, where: { status: 'POSTED', ...(excludePaymentId ? { id: { [Op.ne]: excludePaymentId } } : {}) } },
+      {
+        model, as: alias, attributes: [], required: true,
+        where: { status: 'POSTED', ...(exclude ? { id: { [Op.ne]: exclude } } : {}) },
+      },
     ],
     transaction,
     raw: true,
   });
   return Number(result?.total || 0);
+};
+
+const getInvoiceAllocatedAmount = async (invoiceType, invoiceId, { excludeReceiptId, excludePaymentId, transaction } = {}) => {
+  const [fromReceipts, fromPayments] = await Promise.all([
+    sumAllocations(Receipt, 'receipt', invoiceType, invoiceId, excludeReceiptId, transaction),
+    sumAllocations(Payment, 'payment', invoiceType, invoiceId, excludePaymentId, transaction),
+  ]);
+  return fromReceipts + fromPayments;
 };
 
 /**
@@ -74,10 +97,9 @@ const createChequesFor = async ({ modes, factoryId, partyId, direction, date, re
 
 class PaymentsService {
   // --- Receipts (customer money in) ---
-  static async listReceipts(page, limit, { factoryId, customerPartyId, search } = {}) {
+  static async listReceipts(page, limit, { customerPartyId, search, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
     if (search) Object.assign(where, searchWhere(search, ['receiptNumber']));
     return Receipt.findAndCountAll({
@@ -102,8 +124,23 @@ class PaymentsService {
       if (allocationTotal > totalAmountPaise) throw new ValidationError('Allocated amount cannot exceed the receipt total');
 
       for (const alloc of allocations || []) {
-        const invoice = await SalesInvoice.findByPk(alloc.invoiceId, { transaction });
+        // FOR UPDATE: two receipts allocated against the same invoice at the
+        // same moment both read "nothing allocated yet" and both pass the
+        // over-allocation check, leaving the invoice paid twice. Locking the
+        // invoice row makes the second one wait and then see the first.
+        const invoice = await SalesInvoice.findByPk(alloc.invoiceId, { transaction, lock: transaction.LOCK.UPDATE });
         if (!invoice) throw new NotFoundError('Sales invoice not found');
+        if (invoice.status !== 'POSTED') {
+          throw new ValidationError(`Invoice ${invoice.invoiceNumber} is ${invoice.status} and cannot receive a payment`);
+        }
+        // A receipt credits the paying customer's receivable account. Allowing
+        // it to settle a different customer's invoice would credit one ledger
+        // and clear another — both balances wrong, and neither obviously so.
+        if (invoice.customerPartyId !== customerPartyId) {
+          throw new ValidationError(
+            `Invoice ${invoice.invoiceNumber} belongs to a different customer — a receipt can only settle its own customer's invoices`
+          );
+        }
         const alreadyAllocated = await getInvoiceAllocatedAmount('SALES', alloc.invoiceId, { transaction });
         if (alreadyAllocated + alloc.allocatedAmountPaise > invoice.totalPaise) {
           throw new ValidationError(`Allocation exceeds the outstanding balance on invoice ${invoice.invoiceNumber}`);
@@ -159,10 +196,9 @@ class PaymentsService {
   }
 
   // --- Payments (money out to vendor/contractor/labour) ---
-  static async listPayments(page, limit, { factoryId, partyId, search } = {}) {
+  static async listPayments(page, limit, { partyId, search, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (partyId) where.partyId = partyId;
     if (search) Object.assign(where, searchWhere(search, ['paymentNumber']));
     return Payment.findAndCountAll({
@@ -188,8 +224,13 @@ class PaymentsService {
 
       const touchedInvoices = [];
       for (const alloc of allocations || []) {
-        const invoice = await PurchaseInvoice.findByPk(alloc.invoiceId, { transaction });
+        const invoice = await PurchaseInvoice.findByPk(alloc.invoiceId, { transaction, lock: transaction.LOCK.UPDATE });
         if (!invoice) throw new NotFoundError('Purchase invoice not found');
+        if (invoice.vendorPartyId !== partyId) {
+          throw new ValidationError(
+            `Invoice ${invoice.vendorInvoiceNumber} belongs to a different vendor — a payment can only settle its own vendor's invoices`
+          );
+        }
         const alreadyAllocated = await getInvoiceAllocatedAmount('PURCHASE', alloc.invoiceId, { transaction });
         if (alreadyAllocated + alloc.allocatedAmountPaise > invoice.amountPaise) {
           throw new ValidationError(`Allocation exceeds the outstanding balance on invoice ${invoice.vendorInvoiceNumber}`);

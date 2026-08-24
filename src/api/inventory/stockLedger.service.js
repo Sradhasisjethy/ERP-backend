@@ -6,7 +6,11 @@ const { StockLedgerEntry } = require('./stockLedgerEntry.model');
 const { Product } = require('../products/product.model');
 const { Factory } = require('../factory/factory.model');
 const { ValidationError, NotFoundError } = require('../../core/AppError');
+const { toOrder } = require('../../utils/pagination');
 const { getUserId } = require('../../core/tenantContext');
+
+const LOT_SORTABLE = ['lotNumber', 'originDate', 'status', 'qtyAvailable', 'createdAt'];
+const ENTRY_SORTABLE = ['movementType', 'direction', 'quantity', 'createdAt'];
 const { logger } = require('../../utils/logger');
 
 class StockLedgerService {
@@ -113,7 +117,18 @@ class StockLedgerService {
         { transaction }
       );
     } else {
-      await lot.update({ qtyAvailable: Number(lot.qtyAvailable) + Number(quantity) }, { transaction });
+      const resultingQty = Number(lot.qtyAvailable) + Number(quantity);
+      // A lot that was fully drawn down is marked CONSUMED by the OUT branch
+      // above. When stock comes back — a cancelled dispatch, a sales return,
+      // a reversed receipt — the quantity was restored but the status was not,
+      // leaving a lot holding stock that `status: 'AVAILABLE'` queries cannot
+      // see. The ledger and the raw lot quantity said the stock was there;
+      // availability, reservation and the balance endpoint said it was not.
+      //
+      // Only CONSUMED is reversed. CURING, WITH_CONTRACTOR and IN_TRANSIT are
+      // lifecycle states an inbound movement must not silently overwrite.
+      const status = lot.status === 'CONSUMED' && resultingQty > 0 ? 'AVAILABLE' : lot.status;
+      await lot.update({ qtyAvailable: resultingQty, status }, { transaction });
     }
 
     return StockLedgerEntry.create(
@@ -239,10 +254,9 @@ class StockLedgerService {
     return Number(result.total);
   }
 
-  static async listLots(page, limit, { factoryId, productId, status, search } = {}) {
+  static async listLots(page, limit, { productId, status, search, sortBy, sortDir, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (productId) where.productId = productId;
     if (status) where.status = status;
 
@@ -252,24 +266,29 @@ class StockLedgerService {
       limit,
       offset,
       include: [{ model: Product, as: 'product' }],
-      order: [['originDate', 'ASC']],
+      order: toOrder(sortBy, sortDir, LOT_SORTABLE, [['originDate', 'ASC']]),
     });
   }
 
-  static async listLedgerEntries(page, limit, { factoryId, productId, lotId, movementType } = {}) {
+  static async listLedgerEntries(page, limit, { productId, lotId, movementType, search, sortBy, sortDir, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (productId) where.productId = productId;
     if (lotId) where.lotId = lotId;
     if (movementType) where.movementType = movementType;
+
+    const include = [{ model: Product, as: 'product' }, { model: StockLot, as: 'lot' }];
+    // `search` was accepted by the query schema and silently discarded here.
+    if (search) {
+      include[1] = { ...include[1], where: searchWhere(search, ['lotNumber']), required: true };
+    }
 
     return StockLedgerEntry.findAndCountAll({
       where,
       limit,
       offset,
-      include: [{ model: Product, as: 'product' }, { model: StockLot, as: 'lot' }],
-      order: [['createdAt', 'DESC']],
+      include,
+      order: toOrder(sortBy, sortDir, ENTRY_SORTABLE, [['createdAt', 'DESC']]),
     });
   }
 

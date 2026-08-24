@@ -47,10 +47,23 @@ PurchaseInvoice.initAudited(
       type: DataTypes.BIGINT,
       allowNull: false,
     },
+    // Derived from allocations by PaymentsService — never set by hand. The
+    // manual override endpoint that used to write this let an unpaid invoice
+    // be marked PAID with no money behind it, zeroing a payable the ledger
+    // still carried.
     paymentStatus: {
       type: DataTypes.ENUM('UNPAID', 'PARTIALLY_PAID', 'PAID'),
       allowNull: false,
       defaultValue: 'UNPAID',
+    },
+    status: {
+      type: DataTypes.ENUM('POSTED', 'CANCELLED'),
+      allowNull: false,
+      defaultValue: 'POSTED',
+    },
+    cancelReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
   },
   {

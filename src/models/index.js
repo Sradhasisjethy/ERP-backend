@@ -24,6 +24,7 @@ const { PriceListItem } = require('../api/pricing/priceListItem.model');
 const { StockLot } = require('../api/inventory/stockLot.model');
 const { StockLedgerEntry } = require('../api/inventory/stockLedgerEntry.model');
 const { StockReservation } = require('../api/inventory/stockReservation.model');
+const { StockAdjustment } = require('../api/inventory/stockAdjustment.model');
 const { PurchaseOrder } = require('../api/purchasing/purchaseOrder.model');
 const { PurchaseOrderLine } = require('../api/purchasing/purchaseOrderLine.model');
 const { GoodsReceipt } = require('../api/purchasing/goodsReceipt.model');
@@ -203,6 +204,7 @@ module.exports = {
   StockLot,
   StockLedgerEntry,
   StockReservation,
+  StockAdjustment,
   PurchaseOrder,
   PurchaseOrderLine,
   GoodsReceipt,

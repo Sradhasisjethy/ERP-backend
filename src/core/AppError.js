@@ -31,6 +31,19 @@ class ValidationError extends AppError {
   }
 }
 
+/**
+ * Imported by auth.service.js since the forgot/reset-password flow was written,
+ * but never defined here — so `throw new BadRequestError(...)` raised a
+ * TypeError and surfaced as a 500 "Internal Server Error". Two paths hit it:
+ * requesting a reset for a protected admin account, and submitting a reset with
+ * missing fields. Both are ordinary 400s.
+ */
+class BadRequestError extends AppError {
+  constructor(message = 'Bad request') {
+    super(message, 400);
+  }
+}
+
 class ConflictError extends AppError {
   constructor(message = 'Conflict') {
     super(message, 409);
@@ -38,6 +51,7 @@ class ConflictError extends AppError {
 }
 
 module.exports = {
+  BadRequestError,
   AppError,
   NotFoundError,
   UnauthorizedError,

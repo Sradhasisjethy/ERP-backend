@@ -30,10 +30,9 @@ const reverseJournalFor = async (referenceType, referenceId, reason, transaction
 
 class ReturnsService {
   // --- Sales Return (M22) ---
-  static async listSalesReturns(page, limit, { factoryId, customerPartyId, search } = {}) {
+  static async listSalesReturns(page, limit, { customerPartyId, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
     if (search) Object.assign(where, searchWhere(search, ['returnNumber', 'reason']));
     return SalesReturn.findAndCountAll({
@@ -113,10 +112,9 @@ class ReturnsService {
   }
 
   // --- Purchase Return (M22) ---
-  static async listPurchaseReturns(page, limit, { factoryId, vendorPartyId, search } = {}) {
+  static async listPurchaseReturns(page, limit, { vendorPartyId, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (vendorPartyId) where.vendorPartyId = vendorPartyId;
     if (search) Object.assign(where, searchWhere(search, ['returnNumber', 'reason']));
     return PurchaseReturn.findAndCountAll({
@@ -191,10 +189,9 @@ class ReturnsService {
   }
 
   // --- Credit Note (M23) ---
-  static async listCreditNotes(page, limit, { factoryId, customerPartyId, search } = {}) {
+  static async listCreditNotes(page, limit, { customerPartyId, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
     if (search) Object.assign(where, searchWhere(search, ['noteNumber', 'reason']));
     return CreditNote.findAndCountAll({ where, limit, offset, include: [{ model: Party, as: 'customer' }], order: [['noteDate', 'DESC']] });
@@ -245,10 +242,9 @@ class ReturnsService {
   }
 
   // --- Debit Note (M23) ---
-  static async listDebitNotes(page, limit, { factoryId, vendorPartyId, search } = {}) {
+  static async listDebitNotes(page, limit, { vendorPartyId, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (vendorPartyId) where.vendorPartyId = vendorPartyId;
     if (search) Object.assign(where, searchWhere(search, ['noteNumber', 'reason']));
     return DebitNote.findAndCountAll({ where, limit, offset, include: [{ model: Party, as: 'vendor' }], order: [['noteDate', 'DESC']] });

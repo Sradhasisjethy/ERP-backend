@@ -1,11 +1,13 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { scopeListToFactories } = require('../../core/salesScope');
 const { ExpensesService } = require('./expenses.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
 
 const list = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, category, search } = req.query;
-  const data = await ExpensesService.list(Number(page), Number(limit), { factoryId, category, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ExpensesService.list(Number(page), Number(limit), { category, search, baseWhere });
   sendList(res, req, maskRateFields(data, req, ['amountPaise']), 'Expenses retrieved successfully');
 });
 const get = asyncHandler(async (req, res) => {

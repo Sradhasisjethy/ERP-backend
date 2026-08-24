@@ -7,12 +7,30 @@ const enabled = env.RATE_LIMIT_ENABLED === 'true';
 
 const passthrough = (req, res, next) => next();
 
-const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV || true;
+/**
+ * Limits per environment.
+ *
+ * This used to be `const isDev = NODE_ENV === 'development' || !NODE_ENV || true`
+ * — the trailing `|| true` made it unconditionally true, so a production
+ * deployment with RATE_LIMIT_ENABLED=true still got the development ceilings:
+ * 5000 API calls and 1000 login attempts per 15 minutes instead of 100 and 10.
+ * Brute-force protection on /auth/login was effectively switched off in the
+ * only environment where it matters.
+ *
+ * Exported so the limits can be asserted directly rather than inferred from
+ * behaviour, which is what let the bug sit unnoticed.
+ */
+const resolveLimits = (nodeEnv) => {
+  const relaxed = nodeEnv !== 'production';
+  return { api: relaxed ? 5000 : 100, auth: relaxed ? 1000 : 10 };
+};
+
+const limits = resolveLimits(process.env.NODE_ENV);
 
 const apiLimiter = enabled
   ? rateLimit({
       windowMs: 15 * 60 * 1000, // 15 minutes
-      max: isDev ? 5000 : 100,
+      max: limits.api,
       message: 'Too many requests from this IP, please try again after 15 minutes',
       standardHeaders: true,
       legacyHeaders: false,
@@ -23,7 +41,7 @@ const apiLimiter = enabled
 const authLimiter = enabled
   ? rateLimit({
       windowMs: 15 * 60 * 1000, // 15 minutes
-      max: isDev ? 1000 : 10,
+      max: limits.auth,
       message:
         'Too many authentication attempts from this IP, please try again after 15 minutes',
       standardHeaders: true,
@@ -32,4 +50,4 @@ const authLimiter = enabled
     })
   : passthrough;
 
-module.exports = { apiLimiter, authLimiter };
+module.exports = { apiLimiter, authLimiter, resolveLimits };

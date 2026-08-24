@@ -105,7 +105,13 @@ describe('Contractor job-work (M26, BR-22, BR-23)', () => {
     // credit) more negative, not more positive — see ledger.service.js's
     // getPartyOutstanding docstring.
     const outstandingAfter = await request(app).get(`/api/v1/ledger/party/${contractor.id}`).set('Cookie', adminCookie);
-    expect(outstandingAfter.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise - 200000);
+    // Payables now read positive on a statement, matching the payables report
+    // and the way the number is spoken about ("we owe them X"). The ledger
+    // endpoint used to return debit − credit for every party type, which
+    // negated every vendor, contractor and labour balance. See
+    // FINANCE_ACCOUNTS_AUDIT.md §"Party statement sign".
+    // Job work earned by the contractor increases what we owe them.
+    expect(outstandingAfter.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise + 200000);
   });
 
   it('rejects a contractor entry with no configured piece rate', async () => {
@@ -130,7 +136,8 @@ describe('Labour attendance & wages (M27, BR-24)', () => {
 
     // AP-side party — see the contractor test above for why this is a subtraction.
     const outstandingAfter = await request(app).get(`/api/v1/ledger/party/${labour.id}`).set('Cookie', adminCookie);
-    expect(outstandingAfter.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise - 60000);
+    // A day's wage accrued increases what we owe the labourer.
+    expect(outstandingAfter.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise + 60000);
   });
 
   it('HALF_DAY accrues 50%', async () => {
@@ -175,7 +182,8 @@ describe('Advances (BR-25)', () => {
     // An advance *debits* AP, moving the (negative, AP-side) outstanding
     // balance up toward zero — i.e. it reduces what we owe them.
     const outstandingAfterAdvance = await request(app).get(`/api/v1/ledger/party/${labour.id}`).set('Cookie', adminCookie);
-    expect(outstandingAfterAdvance.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise + 20000);
+    // An advance is money already paid out, so it reduces what is still owed.
+    expect(outstandingAfterAdvance.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise - 20000);
 
     const cancelled = await request(app).put(`/api/v1/workforce/advances/${advance.body.data.id}/cancel`).set('Cookie', adminCookie).send({ reason: 'Entered twice' });
     expect(cancelled.status).toBe(200);

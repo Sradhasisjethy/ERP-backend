@@ -9,7 +9,7 @@ const { env } = require('../../config/env');
 const { UnauthorizedError, NotFoundError, BadRequestError } = require('../../core/AppError');
 const { expandPermissions } = require('../../utils/permissionCatalog');
 const emailService = require('../../services/email.service');
-const { WebPermissions, SystemRoles } = require('../../utils/constants');
+const { WebPermissions, SystemRoles, EmployeeStatus } = require('../../utils/constants');
 
 class AuthService {
   /**
@@ -71,6 +71,31 @@ class AuthService {
     });
   }
 
+  /**
+   * A user may sign in only while their account is active.
+   *
+   * Nothing checked this. A TERMINATED or INACTIVE employee could log in
+   * normally, and — worse — anyone already holding a 7-day refresh token kept
+   * minting fresh 15-minute access tokens for a week after being disabled,
+   * because `refresh()` only verified the signature and that the row still
+   * existed. Disabling an account was, in practice, advisory.
+   *
+   * The message is deliberately the same as a bad password: telling an attacker
+   * "that account exists but is disabled" is still telling them the account
+   * exists.
+   */
+  static assertUsable(user) {
+    // Deny-list, not allow-list. The four states are ACTIVE, ONBOARDING,
+    // INACTIVE and TERMINATED, and the model defaults to ONBOARDING — an
+    // employee being set up has to be able to sign in, which is the whole
+    // point of that state. Only the two that mean "this person no longer works
+    // here" are refused.
+    const DENIED = [EmployeeStatus.INACTIVE, EmployeeStatus.TERMINATED];
+    if (!user || DENIED.includes(user.status)) {
+      throw new UnauthorizedError('Invalid credentials');
+    }
+  }
+
   async login(email, password) {
     const user = await User.scope('withPassword').findOne({ where: { email } });
     if (!user) {
@@ -81,6 +106,8 @@ class AuthService {
     if (!isValid) {
       throw new UnauthorizedError('Invalid credentials');
     }
+
+    AuthService.assertUsable(user);
 
     const accessToken = await this.generateAccessToken(user);
     const refreshToken = this.generateRefreshToken(user.id);
@@ -112,6 +139,10 @@ class AuthService {
     if (!user) {
       throw new UnauthorizedError('User not found');
     }
+    // Re-checked on every refresh, which is the only point at which a
+    // still-valid session can be cut short: the access token itself is
+    // stateless and lives for 15 minutes.
+    AuthService.assertUsable(user);
 
     const accessToken = await this.generateAccessToken(user);
     return { accessToken };

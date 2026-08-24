@@ -15,6 +15,9 @@ const purchaseOrderBody = z.object({
     .min(1),
 });
 const createPurchaseOrderSchema = z.object({ body: purchaseOrderBody });
+// Edit is DRAFT-only; `lines` replaces the whole set when present. factoryId is
+// not editable — the PO number came from that factory's series.
+const updatePurchaseOrderSchema = z.object({ body: purchaseOrderBody.partial().omit({ factoryId: true }) });
 const cancelPurchaseOrderSchema = z.object({ body: z.object({ reason: z.string().min(3) }) });
 
 const goodsReceiptBody = z.object({
@@ -45,7 +48,7 @@ const purchaseInvoiceBody = z.object({
   amountPaise: z.coerce.number().int().min(0),
 });
 const createPurchaseInvoiceSchema = z.object({ body: purchaseInvoiceBody });
-const updatePaymentStatusSchema = z.object({ body: z.object({ paymentStatus: z.enum(['UNPAID', 'PARTIALLY_PAID', 'PAID']) }) });
+// paymentStatus is derived, never submitted — see purchasing.router.js.
 
 const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -89,9 +92,9 @@ const convertIndentSchema = z.object({
 module.exports = {
   createIndentSchema, reasonSchema, convertIndentSchema,
   createPurchaseOrderSchema,
+  updatePurchaseOrderSchema,
   cancelPurchaseOrderSchema,
   createGoodsReceiptSchema,
   createPurchaseInvoiceSchema,
-  updatePaymentStatusSchema,
   listQuerySchema,
 };

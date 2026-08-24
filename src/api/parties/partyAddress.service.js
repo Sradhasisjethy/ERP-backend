@@ -15,8 +15,17 @@ class PartyAddressService {
     });
   }
 
-  static async get(id) {
-    const address = await PartyAddress.findByPk(id);
+  /**
+   * Addresses are always reached through `/parties/:id/addresses/:addressId`,
+   * so the address must be verified to belong to the party named in the path.
+   * Without that check the party segment is decorative: any address id could
+   * be edited or deleted through any party's URL. Tenant scoping still bounds
+   * the damage to one tenant, but "edit customer A's delivery address via
+   * customer B" is exactly the confusion that reroutes a dispatch.
+   */
+  static async get(id, partyId) {
+    const where = partyId ? { id, partyId } : { id };
+    const address = await PartyAddress.findOne({ where });
     if (!address) throw new NotFoundError('Address not found');
     return address;
   }
@@ -54,9 +63,9 @@ class PartyAddressService {
     });
   }
 
-  static async update(id, data) {
+  static async update(id, data, partyId) {
     return sequelize.transaction(async (transaction) => {
-      const address = await PartyAddress.findByPk(id, { transaction });
+      const address = await PartyAddress.findOne({ where: partyId ? { id, partyId } : { id }, transaction });
       if (!address) throw new NotFoundError('Address not found');
       await address.update(this.withDerivedStateCode(data), { transaction });
       await this.enforceSingleDefault(address, transaction);
@@ -80,8 +89,8 @@ class PartyAddressService {
     }
   }
 
-  static async remove(id) {
-    const address = await this.get(id);
+  static async remove(id, partyId) {
+    const address = await this.get(id, partyId);
     if (address.isDefaultBilling || address.isDefaultShipping) {
       const siblings = await PartyAddress.count({ where: { partyId: address.partyId, id: { [Op.ne]: id } } });
       if (siblings > 0) {

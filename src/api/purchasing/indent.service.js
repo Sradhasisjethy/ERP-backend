@@ -22,10 +22,9 @@ const getCurrentFinancialYearId = async (transaction) => {
 const withLines = { include: [{ model: PurchaseIndentLine, as: 'lines', include: [{ model: Product, as: 'product' }] }] };
 
 class IndentService {
-  static async list(page, limit, { factoryId, status, search } = {}) {
+  static async list(page, limit, { status, search, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (status) where.status = status;
     if (search) Object.assign(where, searchWhere(search, ['indentNumber', 'remarks']));
     return PurchaseIndent.findAndCountAll({ where, limit, offset, ...withLines, order: [['indentDate', 'DESC']] });
@@ -124,7 +123,12 @@ class IndentService {
       );
 
       await indent.update({ status: 'CONVERTED', purchaseOrderId: po.id }, { transaction });
-      return po;
+      // Return the order with its vendor and lines loaded. Returning the bare
+      // `po` instance meant the caller got a purchase order with no `lines`,
+      // so the screen that converts an indent had nothing to show or to
+      // receive against without a second round trip.
+      const { PurchasingService } = require('./purchasing.service');
+      return PurchasingService.getPurchaseOrder(po.id);
     });
   }
 

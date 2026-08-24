@@ -2,8 +2,9 @@ const { Model, DataTypes } = require('sequelize');
 const { getTenantId } = require('./tenantContext');
 
 /**
- * Base class for tenant-scoped models. `beforeFind` / `beforeValidate` transparently
- * apply the current tenant (from CLS) so callers never have to filter by tenantId manually.
+ * Base class for tenant-scoped models. `beforeFind` / `beforeCount` /
+ * `beforeValidate` transparently apply the current tenant (from CLS) so callers
+ * never have to filter by tenantId manually.
  *
  * There are deliberately no beforeUpdate/beforeDestroy hooks here. Every call site in this
  * codebase fetches the instance via a tenant-scoped findByPk/findOne *before* calling
@@ -18,6 +19,29 @@ const { getTenantId } = require('./tenantContext');
  * for beforeDestroy until it was caught here.
  */
 class BaseScopedModel extends Model {
+  /**
+   * `count()` fires `beforeCount`, but `sum()`, `min()` and `max()` fire NO
+   * hook at all — they call `Model.aggregate` directly. So while findAll and
+   * count were correctly tenant-scoped, `sum` silently answered across every
+   * tenant on the platform:
+   *
+   *     findAll({ where: { status: 'CONFIRMED' } })          -> 1 row,  this tenant
+   *     sum('totalAmountPaise', { where: { status: ... } })   -> both tenants' money
+   *
+   * That is how BR-13 credit control was computing a customer's exposure: one
+   * tenant's order volume could block another tenant's customer, and a real
+   * over-limit order could slip through. Overriding `aggregate` — which every
+   * aggregate call including `count` funnels through — closes the whole family
+   * at once rather than per call site.
+   */
+  static aggregate(attribute, aggregateFunction, options = {}) {
+    const tenantId = getTenantId();
+    if (tenantId) {
+      options = { ...options, where: { ...options.where, tenantId } };
+    }
+    return super.aggregate(attribute, aggregateFunction, options);
+  }
+
   static initScoped(attributes, options) {
     const { defaultScope: modelDefaultScope, hooks: modelHooks, ...restOptions } = options;
 
@@ -62,6 +86,24 @@ class BaseScopedModel extends Model {
         },
         hooks: {
           beforeFind: (options) => {
+            const tenantId = getTenantId();
+            if (tenantId) {
+              options.where = { ...options.where, tenantId };
+            }
+          },
+          // `count()` does NOT go through beforeFind — Sequelize routes it via
+          // Model.aggregate, which fires `beforeCount` instead. Without this
+          // hook every count in the codebase was answered across ALL tenants
+          // while the findAll beside it was correctly scoped:
+          //
+          //     findAll({ where: { code: 'X' } })  -> 1 row   (this tenant)
+          //     count(  { where: { code: 'X' } })  -> 2       (every tenant)
+          //
+          // That silently inflated the dashboard tiles (curing lots, dead
+          // stock, pending approvals, unread notifications) with other
+          // tenants' data, and it makes any "does this already exist?" or
+          // "is this still referenced?" check answer about the wrong tenant.
+          beforeCount: (options) => {
             const tenantId = getTenantId();
             if (tenantId) {
               options.where = { ...options.where, tenantId };

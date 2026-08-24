@@ -30,10 +30,9 @@ const STANDARD_WORK_HOURS = 8;
 
 class WorkforceService {
   // --- BR-23: Contractor material issue ("With Contractor" location) ---
-  static async listMaterialIssues(page, limit, { factoryId, contractorPartyId, search } = {}) {
+  static async listMaterialIssues(page, limit, { contractorPartyId, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (contractorPartyId) where.contractorPartyId = contractorPartyId;
     if (search) Object.assign(where, searchWhere(search, ['issueNumber']));
     return ContractorMaterialIssue.findAndCountAll({
@@ -91,10 +90,9 @@ class WorkforceService {
   }
 
   // --- BR-22: Contractor production entry (piece-rate, atomic three-in-one) ---
-  static async listContractorEntries(page, limit, { factoryId, contractorPartyId, search } = {}) {
+  static async listContractorEntries(page, limit, { contractorPartyId, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (contractorPartyId) where.contractorPartyId = contractorPartyId;
     if (search) Object.assign(where, searchWhere(search, ['entryNumber']));
     return ContractorProductionEntry.findAndCountAll({
@@ -173,10 +171,9 @@ class WorkforceService {
   }
 
   // --- BR-24: Labour attendance & wage accrual ---
-  static async listAttendance(page, limit, { factoryId, labourPartyId } = {}) {
+  static async listAttendance(page, limit, { labourPartyId , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (labourPartyId) where.labourPartyId = labourPartyId;
     return AttendanceRecord.findAndCountAll({ where, limit, offset, include: [{ model: Party, as: 'labour' }], order: [['attendanceDate', 'DESC']] });
   }
@@ -221,10 +218,9 @@ class WorkforceService {
   }
 
   // --- BR-25: Advances (contractor & labour) ---
-  static async listAdvances(page, limit, { factoryId, partyId, search } = {}) {
+  static async listAdvances(page, limit, { partyId, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (partyId) where.partyId = partyId;
     if (search) Object.assign(where, searchWhere(search, ['advanceNumber', 'reason']));
     return Advance.findAndCountAll({ where, limit, offset, include: [{ model: Party, as: 'party' }], order: [['advanceDate', 'DESC']] });
