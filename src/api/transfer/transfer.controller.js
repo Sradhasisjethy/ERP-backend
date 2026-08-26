@@ -1,4 +1,5 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { scopeListToFactories } = require('../../core/salesScope');
 const { TransferService } = require('./transfer.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 

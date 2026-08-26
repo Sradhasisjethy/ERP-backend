@@ -65,13 +65,45 @@ app.use(
   })
 );
 
-// Health check
-app.get('/health', (req, res) => {
+/**
+ * Liveness: is the process up? Deliberately touches nothing — a liveness probe
+ * that queries the database restarts a healthy process whenever the database
+ * hiccups.
+ */
+app.get('/health/live', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Serve local uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+/**
+ * Readiness: can this instance actually serve traffic?
+ *
+ * The previous /health returned `{status:'ok'}` unconditionally, so an instance
+ * whose database connection was gone stayed in the load-balancer rotation and
+ * kept accepting requests it could only fail. Returns 503 when a dependency is
+ * down so the orchestrator can route around it.
+ */
+app.get(['/health', '/health/ready'], async (req, res) => {
+  const { sequelize } = require('./config/database');
+  const checks = {};
+  try {
+    await sequelize.authenticate();
+    checks.database = 'ok';
+  } catch (error) {
+    checks.database = 'unreachable';
+    logger.error({ message: 'Health check: database unreachable', error: error.message });
+  }
+
+  const healthy = Object.values(checks).every((v) => v === 'ok');
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'degraded',
+    checks,
+    uptimeSeconds: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // API Routes — v1
 app.use('/api/v1/auth', authRouter);

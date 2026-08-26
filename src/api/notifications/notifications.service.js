@@ -22,16 +22,22 @@ class NotificationsService {
    *
    * Returns the notification when newly created, or null when it already existed.
    */
-  static async raise({ type, severity = 'MEDIUM', title, message, metadata = {}, factoryId, entityType, entityId, userId, dedupeKey }) {
+  static async raise({ type, severity = 'MEDIUM', title, message, metadata = {}, factoryId, entityType, entityId, userId, dedupeKey, transaction }) {
     try {
-      return await Notification.create({
-        type, severity, title, message, metadata,
-        factoryId: factoryId || null,
-        entityType: entityType || null,
-        entityId: entityId || null,
-        userId: userId || null,
-        dedupeKey: dedupeKey || `${type}:${entityId || 'global'}`,
-      });
+      // `transaction` is honoured so a notification raised by a business
+      // service commits with the document that caused it — and rolls back with
+      // it, rather than announcing an event that never happened.
+      return await Notification.create(
+        {
+          type, severity, title, message, metadata,
+          factoryId: factoryId || null,
+          entityType: entityType || null,
+          entityId: entityId || null,
+          userId: userId || null,
+          dedupeKey: dedupeKey || `${type}:${entityId || 'global'}`,
+        },
+        { transaction }
+      );
     } catch (error) {
       if (error instanceof UniqueConstraintError) return null; // already raised
       throw error;

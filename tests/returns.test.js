@@ -110,9 +110,13 @@ describe('Purchase Return (M22)', () => {
     expect(after.body.data.balance).toBe(before.body.data.balance - 15);
 
     const outstandingAfter = await request(app).get(`/api/v1/ledger/party/${vendor.id}`).set('Cookie', adminCookie);
-    // Vendor is an AP party — a purchase return debits AP, moving the
-    // (negative, since we owe them) balance up toward zero.
-    expect(outstandingAfter.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise + 75000);
+    // Payables now read positive on a statement, matching the payables report
+    // and the way the number is spoken about ("we owe them X"). The ledger
+    // endpoint used to return debit − credit for every party type, which
+    // negated every vendor, contractor and labour balance. See
+    // FINANCE_ACCOUNTS_AUDIT.md §"Party statement sign".
+    // A purchase return reduces what we owe.
+    expect(outstandingAfter.body.data.outstandingPaise).toBe(outstandingBefore.body.data.outstandingPaise - 75000);
   });
 });
 

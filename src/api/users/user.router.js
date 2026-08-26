@@ -20,6 +20,7 @@ const upload = multer({ storage: storage });
 const { authenticate } = require('../../middlewares/auth');
 const { authorize } = require('../../middlewares/authorize');
 const { tenantScope } = require('../../middlewares/tenantScope');
+const { auditContext } = require('../../middlewares/auditContext');
 const { validate } = require('../../middlewares/validate');
 const { createUserSchema, updateUserSchema, listUsersQuerySchema } = require('./user.schema');
 const { WebPermissions } = require('../../utils/constants');

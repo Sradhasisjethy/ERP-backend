@@ -20,6 +20,13 @@ const salesOrderBody = z.object({
 });
 const createSalesOrderSchema = z.object({ body: salesOrderBody });
 
+// Edit is DRAFT-only and partial: `lines` replaces the whole set when present,
+// and is left untouched when absent. factoryId is not editable — see
+// SalesService.updateSalesOrder for why.
+const updateSalesOrderSchema = z.object({
+  body: salesOrderBody.partial().omit({ factoryId: true }),
+});
+
 const reasonSchema = z.object({ body: z.object({ reason: z.string().min(3) }) });
 
 const atpQuerySchema = z.object({
@@ -38,4 +45,4 @@ const listQuerySchema = z.object({
   status: z.string().optional(),
 });
 
-module.exports = { createSalesOrderSchema, reasonSchema, atpQuerySchema, listQuerySchema };
+module.exports = { createSalesOrderSchema, updateSalesOrderSchema, reasonSchema, atpQuerySchema, listQuerySchema };

@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../../middlewares/auth');
 const { tenantScope } = require('../../middlewares/tenantScope');
+const { enforceFactoryScope } = require('../../middlewares/factoryScope');
 const { auditContext } = require('../../middlewares/auditContext');
 const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
@@ -9,7 +10,8 @@ const schema = require('./workforce.schema');
 
 const workforceRouter = Router();
 
-workforceRouter.use(authenticate, tenantScope, auditContext);
+// BR-29: refuse any request naming a factory this user cannot access.
+workforceRouter.use(authenticate, tenantScope, auditContext, enforceFactoryScope);
 
 workforceRouter.get('/contractor/material-issues', authorize('CONTRACTOR_READ'), validate(schema.listQuerySchema, 'query'), controller.listMaterialIssues);
 workforceRouter.post('/contractor/material-issues', authorize('CONTRACTOR_CREATE'), validate(schema.issueMaterialSchema), controller.issueMaterial);

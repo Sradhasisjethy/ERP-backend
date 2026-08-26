@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../../middlewares/auth');
 const { tenantScope } = require('../../middlewares/tenantScope');
+const { enforceFactoryScope } = require('../../middlewares/factoryScope');
 const { auditContext } = require('../../middlewares/auditContext');
 const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
@@ -9,7 +10,8 @@ const { initiateTransferSchema, receiveTransferSchema, cancelTransferSchema, lis
 
 const transferRouter = Router();
 
-transferRouter.use(authenticate, tenantScope, auditContext);
+// BR-29: refuse any request naming a factory this user cannot access.
+transferRouter.use(authenticate, tenantScope, auditContext, enforceFactoryScope);
 
 transferRouter.get('/', authorize('TRANSFER_READ'), validate(listQuerySchema, 'query'), listTransfers);
 transferRouter.post('/', authorize('TRANSFER_CREATE'), validate(initiateTransferSchema), initiateTransfer);

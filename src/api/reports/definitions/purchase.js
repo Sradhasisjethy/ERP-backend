@@ -60,7 +60,12 @@ defineReport({
     metric('outstandingPaise', 'Outstanding'),
   ],
   build({ params: p, allowedFactoryIds, where: openWhere }) {
+    // A cancelled vendor bill is not a payable. `purchase_invoices` gained a
+    // status only when cancellation was implemented, so every query here had
+    // been written without one — leaving a reversed invoice showing as
+    // outstanding on the payables and purchase reports.
     const where = openWhere('pi."tenantId"');
+    where.raw(`pi."status" = 'POSTED'`);
     where.factoryScope('pi."factoryId"', allowedFactoryIds, p.factoryId);
     where.dateRange('pi."invoiceDate"', p.dateFrom, p.dateTo);
     where.eq('pi."vendorPartyId"', p.vendorId);
@@ -228,7 +233,12 @@ defineReport({
     metric('outstandingPaise', 'Outstanding'),
   ],
   build({ params: p, allowedFactoryIds, where: openWhere }) {
+    // A cancelled vendor bill is not a payable. `purchase_invoices` gained a
+    // status only when cancellation was implemented, so every query here had
+    // been written without one — leaving a reversed invoice showing as
+    // outstanding on the payables and purchase reports.
     const where = openWhere('pi."tenantId"');
+    where.raw(`pi."status" = 'POSTED'`);
     where.factoryScope('pi."factoryId"', allowedFactoryIds, p.factoryId);
     where.dateRange('pi."invoiceDate"', p.dateFrom, p.dateTo);
     where.eq('pi."vendorPartyId"', p.vendorId);

@@ -152,7 +152,10 @@ class GstrService {
     // purchase invoice in the period, split CGST+SGST/IGST by vendor vs
     // factory state, at each line's HSN GST rate.
     const purchaseInvoices = await PurchaseInvoice.findAll({
-      where: { factoryId, invoiceDate: dateRange },
+      // Cancelled bills must not claim input tax credit. Until purchase
+      // invoices gained a status there was nothing to filter on here, so the
+      // comment above described an intent the code could not honour.
+      where: { factoryId, invoiceDate: dateRange, status: 'POSTED' },
       include: [
         { model: Party, as: 'vendor' },
         {

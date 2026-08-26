@@ -5,8 +5,8 @@ const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
 
 const listParties = asyncHandler(async (req, res) => {
-  const { page, limit, search, status, partyType } = req.query;
-  const data = await PartiesService.listParties(Number(page), Number(limit), { search, status, partyType });
+  const { page, limit, search, status, partyType, sortBy, sortDir } = req.query;
+  const data = await PartiesService.listParties(Number(page), Number(limit), { search, status, partyType, sortBy, sortDir });
   sendList(res, req, maskRateFields(data, req, ['creditLimitPaise']), 'Parties retrieved successfully');
 });
 
@@ -41,10 +41,12 @@ const createAddress = asyncHandler(async (req, res) => {
   sendSuccess(res, await PartyAddressService.create(req.params.id, req.body), 'Address created successfully', 201);
 });
 const updateAddress = asyncHandler(async (req, res) => {
-  sendSuccess(res, await PartyAddressService.update(req.params.addressId, req.body), 'Address updated successfully');
+  // req.params.id is the party the address must belong to — see
+  // PartyAddressService.get for why the pair is checked, not just the id.
+  sendSuccess(res, await PartyAddressService.update(req.params.addressId, req.body, req.params.id), 'Address updated successfully');
 });
 const deleteAddress = asyncHandler(async (req, res) => {
-  await PartyAddressService.remove(req.params.addressId);
+  await PartyAddressService.remove(req.params.addressId, req.params.id);
   sendSuccess(res, null, 'Address deleted successfully');
 });
 

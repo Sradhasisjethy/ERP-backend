@@ -1,3 +1,9 @@
+// A lot's curing clock runs from its origin date (BR-08), so a test asserting
+// CURING must receive stock *today* — a hardcoded date silently stops testing
+// anything the moment the wall clock passes it, which is exactly what happened:
+// both curing assertions had been failing for days against a fixed 2026-08-10.
+const today = () => new Date().toISOString().slice(0, 10);
+
 const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const { app } = require('../src/app');
@@ -173,7 +179,7 @@ describe('Production Entry (M09/M10, BR-06..BR-10)', () => {
       .send({
         factoryId: factory.id,
         productId: finishedGood.id,
-        productionDate: '2026-08-11',
+        productionDate: today(),
         goodQty: 10,
         productionPlanLineId,
       });

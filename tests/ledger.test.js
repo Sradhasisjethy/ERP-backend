@@ -192,9 +192,14 @@ describe('LedgerService core (M30, BR-18, BR-21)', () => {
       })
     );
 
+    // getCashBook now returns a full statement — opening balance, rows and a
+    // closing balance — so `opening + in − out = closing` can be checked. It
+    // used to return a bare array whose running balance always started at zero
+    // regardless of the date window.
     const cashBook = await LedgerService.getCashBook(factoryA.id, {});
-    expect(cashBook.length).toBeGreaterThan(0);
-    const last = cashBook[cashBook.length - 1];
+    expect(cashBook.rows.length).toBeGreaterThan(0);
+    expect(cashBook.openingBalancePaise + cashBook.totalInPaise - cashBook.totalOutPaise).toBe(cashBook.closingBalancePaise);
+    const last = cashBook.rows[cashBook.rows.length - 1];
     expect(last.runningBalancePaise).toBe(20000);
   });
 });

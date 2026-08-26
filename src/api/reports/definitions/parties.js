@@ -387,7 +387,7 @@ defineReport({
     where.token('v."status"', p.status);
     where.search(['v."name"', 'v."code"', 'v."phone"', 'v."gstin"'], p.search);
 
-    const clauses = ['pi."vendorPartyId" = v.id'];
+    const clauses = ['pi."vendorPartyId" = v.id', `pi."status" = 'POSTED'`];
     const factory = where.factoryScopeSql('pi."factoryId"', allowedFactoryIds, p.factoryId);
     if (factory) clauses.push(factory);
     if (p.dateFrom) clauses.push(`pi."invoiceDate" >= ${where.param(p.dateFrom)}::date`);
@@ -438,6 +438,7 @@ defineReport({
 
 const buildPayables = function build({ params: p, allowedFactoryIds, where: openWhere }) {
   const where = openWhere('pi."tenantId"');
+  where.raw(`pi."status" = 'POSTED'`);
   where.factoryScope('pi."factoryId"', allowedFactoryIds, p.factoryId);
   where.dateRange('pi."invoiceDate"', p.dateFrom, p.dateTo);
   where.eq('pi."vendorPartyId"', p.vendorId);

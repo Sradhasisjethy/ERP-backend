@@ -41,8 +41,17 @@ const productBody = z.object({
   deadStockDays: z.coerce.number().int().min(1).optional(),
   alertBeforeDays: z.coerce.number().int().min(0).optional(),
 });
-const createProductSchema = z.object({ body: productBody });
-const updateProductSchema = z.object({ body: productBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }) });
+const stockRangeIsCoherent = (body) =>
+  body.minStock === undefined || body.maxStock === undefined || Number(body.maxStock) >= Number(body.minStock);
+const STOCK_RANGE_ERROR = { message: 'Maximum stock cannot be lower than minimum stock', path: ['maxStock'] };
+
+const createProductSchema = z.object({ body: productBody.refine(stockRangeIsCoherent, STOCK_RANGE_ERROR) });
+// The update path only sees the fields the request carries, so a patch that
+// moves just one end of the range is re-checked against the stored row in
+// ProductsService.updateProduct.
+const updateProductSchema = z.object({
+  body: productBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }).refine(stockRangeIsCoherent, STOCK_RANGE_ERROR),
+});
 
 const mixDesignBody = z.object({
   productId: z.string().uuid(),
@@ -76,11 +85,11 @@ const listQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   sortBy: z.string().trim().min(1).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-  search: z.string().optional(),
   status: z.enum(['active', 'inactive']).optional(),
   categoryId: z.string().uuid().optional(),
   productType: z.enum(['FINISHED_GOOD', 'RAW_MATERIAL']).optional(),
   productId: z.string().uuid().optional(),
+  bomStatus: z.enum(['DRAFT', 'ACTIVE', 'SUPERSEDED']).optional(),
 });
 
 // FR-M03-2: conversions between units, e.g. 1 Bag = 50 Kg.

@@ -17,9 +17,9 @@ const getCurrentFinancialYearId = async (transaction) => {
 };
 
 class TransferService {
-  static async listTransfers(page, limit, { fromFactoryId, toFactoryId, status, search } = {}) {
+  static async listTransfers(page, limit, { fromFactoryId, toFactoryId, status, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
+    const where = { ...baseWhere };
     if (fromFactoryId) where.fromFactoryId = fromFactoryId;
     if (toFactoryId) where.toFactoryId = toFactoryId;
     if (status) where.status = status;

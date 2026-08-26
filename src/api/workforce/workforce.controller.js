@@ -1,4 +1,5 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { scopeListToFactories } = require('../../core/salesScope');
 const { WorkforceService } = require('./workforce.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
@@ -6,7 +7,8 @@ const { maskRateFields } = require('../../utils/fieldMasking');
 // Contractor material issue
 const listMaterialIssues = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, contractorPartyId, search } = req.query;
-  sendList(res, req, await WorkforceService.listMaterialIssues(Number(page), Number(limit), { factoryId, contractorPartyId, search }), 'Material issues retrieved successfully');
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  sendList(res, req, await WorkforceService.listMaterialIssues(Number(page), Number(limit), { contractorPartyId, search, baseWhere }), 'Material issues retrieved successfully');
 });
 const getMaterialIssue = asyncHandler(async (req, res) => {
   sendSuccess(res, await WorkforceService.getMaterialIssue(req.params.id), 'Material issue retrieved successfully');
@@ -18,7 +20,8 @@ const issueMaterial = asyncHandler(async (req, res) => {
 // Contractor production entry
 const listContractorEntries = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, contractorPartyId, search } = req.query;
-  const data = await WorkforceService.listContractorEntries(Number(page), Number(limit), { factoryId, contractorPartyId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await WorkforceService.listContractorEntries(Number(page), Number(limit), { contractorPartyId, search, baseWhere });
   sendList(res, req, maskRateFields(data, req, ['pieceRatePaise', 'totalValuePaise']), 'Contractor production entries retrieved successfully');
 });
 const getContractorEntry = asyncHandler(async (req, res) => {
@@ -31,7 +34,8 @@ const createContractorEntry = asyncHandler(async (req, res) => {
 // Attendance
 const listAttendance = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, labourPartyId, search } = req.query;
-  const data = await WorkforceService.listAttendance(Number(page), Number(limit), { factoryId, labourPartyId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await WorkforceService.listAttendance(Number(page), Number(limit), { labourPartyId, search, baseWhere });
   sendList(res, req, maskRateFields(data, req, ['wageAccruedPaise']), 'Attendance retrieved successfully');
 });
 const markAttendance = asyncHandler(async (req, res) => {
@@ -41,7 +45,8 @@ const markAttendance = asyncHandler(async (req, res) => {
 // Advances
 const listAdvances = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, partyId, search } = req.query;
-  const data = await WorkforceService.listAdvances(Number(page), Number(limit), { factoryId, partyId, search });
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await WorkforceService.listAdvances(Number(page), Number(limit), { partyId, search, baseWhere });
   sendList(res, req, maskRateFields(data, req, ['amountPaise']), 'Advances retrieved successfully');
 });
 const createAdvance = asyncHandler(async (req, res) => {

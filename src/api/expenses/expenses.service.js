@@ -15,10 +15,9 @@ const getCurrentFinancialYearId = async (transaction) => {
 };
 
 class ExpensesService {
-  static async list(page, limit, { factoryId, category, search } = {}) {
+  static async list(page, limit, { category, search , baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
-    const where = {};
-    if (factoryId) where.factoryId = factoryId;
+    const where = { ...baseWhere };
     if (category) where.category = category;
     if (search) Object.assign(where, searchWhere(search, ['expenseNumber', 'category', 'description']));
     return Expense.findAndCountAll({

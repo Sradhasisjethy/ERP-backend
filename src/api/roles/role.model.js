@@ -1,13 +1,13 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
-const { BaseScopedModel } = require('../../core/BaseModel');
+const { BaseAuditedModel } = require('../../core/AuditedModel');
 
 /**
  * AdGroup model representing roles/groups.
  */
-class AdGroup extends BaseScopedModel {}
+class AdGroup extends BaseAuditedModel {}
 
-AdGroup.initScoped(
+AdGroup.initAudited(
   {
     id: {
       type: DataTypes.UUID,
