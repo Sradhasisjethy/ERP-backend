@@ -3,6 +3,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
+const path = require('path');
 const { env } = require('./config/env');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { apiLimiter } = require('./middlewares/rateLimiter');
@@ -72,6 +73,9 @@ app.use(
 app.get('/health/live', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Serve local uploads
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 /**
  * Readiness: can this instance actually serve traffic?
