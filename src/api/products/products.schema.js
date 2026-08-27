@@ -33,6 +33,9 @@ const productBody = z.object({
   code: z.string().min(1),
   productType: z.enum(['FINISHED_GOOD', 'RAW_MATERIAL']).optional(),
   curingDays: z.coerce.number().int().min(0).optional(),
+  // Does a produced lot of this product need a passing test before it can
+  // be sold? Independent of curingDays, which is about age, not strength.
+  qcRequired: z.boolean().optional(),
   standardCostPaise: z.coerce.number().int().min(0).optional(),
   reorderLevel: z.coerce.number().min(0).optional(),
   minStock: z.coerce.number().min(0).optional(),

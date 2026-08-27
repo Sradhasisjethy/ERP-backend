@@ -25,8 +25,10 @@
  *   - `products.qcRequired` defaults FALSE, so even inside an opted-in factory
  *     only the products that need testing are held.
  *
- * Test ages are stored per result (`testAgeDays`) rather than hardcoded to
- * 7/28, so a plant with a different regime is not forced into ours.
+ * Test age is stored per result (`testAgeDays`) rather than constrained to
+ * fixed checkpoints, so any age inside the plant's testing window (7-28 days
+ * here) is recordable, and a plant on a different regime is not forced into
+ * ours.
  */
 
 module.exports = {
@@ -119,8 +121,8 @@ module.exports = {
         productionEntryId: { type: Sequelize.UUID, allowNull: true, references: { model: 'production_entries', key: 'id' }, onDelete: 'RESTRICT' },
 
         // Age at test, in days from the lot's origin date. Stored per result so
-        // a 7-day and a 28-day cube are two rows against the same lot, and a
-        // plant on a different regime is not forced into ours.
+        // cubes crushed at different ages across the testing window are separate
+        // rows against the same lot.
         testAgeDays: { type: Sequelize.INTEGER, allowNull: true },
         sampleRef: { type: Sequelize.STRING, allowNull: true },
 

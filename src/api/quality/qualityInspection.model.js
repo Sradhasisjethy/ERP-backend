@@ -9,9 +9,9 @@ const { ProductionEntry } = require('../production/productionEntry.model');
 /**
  * A single quality test and its verdict (QC-01).
  *
- * One row is one test, not one lot: a 7-day and a 28-day cube against the same
- * pour are two rows, which is what makes a strength curve expressible without
- * a schema change. `testedValue` and `requiredValue` are both stored so that
+ * One row is one test, not one lot: several cubes crushed at different ages
+ * across the 7-28 day window are several rows against the same pour, which is
+ * what makes a strength curve expressible without a schema change. `testedValue` and `requiredValue` are both stored so that
  * revising a specification later cannot silently rewrite the verdict on a test
  * taken last year.
  */

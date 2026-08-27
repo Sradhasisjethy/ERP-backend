@@ -13,8 +13,9 @@ const createInspectionSchema = z.object({
     goodsReceiptId: z.string().uuid().optional(),
     productionEntryId: z.string().uuid().optional(),
 
-    // Age at test in days. Left open rather than fixed at 7/28 so a plant with
-    // a different regime is not forced into ours.
+    // Age at test in days, anywhere in the plant's testing window (7-28 days
+    // here). Stored per result rather than constrained to fixed checkpoints, so
+    // a cube crushed on day 12 is as ordinary as one crushed on day 28.
     testAgeDays: z.coerce.number().int().min(0).optional(),
     sampleRef: z.string().trim().min(1).optional(),
 
