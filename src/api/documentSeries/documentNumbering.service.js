@@ -1,4 +1,3 @@
-const { UniqueConstraintError } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { DocumentSeries } = require('./documentSeries.model');
 const { getTenantId } = require('../../core/tenantContext');
@@ -46,59 +45,66 @@ class DocumentNumberingService {
       throw new Error('DocumentNumberingService.allocate requires financialYearId');
     }
 
-    // Two separate problems, solved separately, because conflating them is
-    // what made the earlier attempts wrong.
+    // Both steps run on the CALLER'S connection, inside the caller's transaction.
     //
-    // 1. CREATING the series row races: several concurrent requests for a
-    //    brand-new series all try to insert it and all but one hit the unique
-    //    constraint. Done inside the caller's transaction, that violation marks
-    //    the transaction aborted at the Postgres level, and every later
-    //    statement fails with "current transaction is aborted" — ten concurrent
-    //    creations against a fresh series lost four of them to opaque 500s.
+    // Two earlier shapes were wrong in opposite directions, and the fix has to
+    // avoid both:
     //
-    //    An earlier fix retried inside a SAVEPOINT. That deadlocked: with CLS
-    //    active, the nested transaction took its own connection and then waited
-    //    on the row lock its own parent held, which can never resolve — two
-    //    test suites hung for 15 minutes each.
+    //   a) Creating the series row with a plain INSERT inside this transaction.
+    //      Concurrent requests for a brand-new series all insert, all but one
+    //      hit the unique index, and that violation marks the caller's
+    //      transaction ABORTED at the Postgres level — every later statement
+    //      then fails with "current transaction is aborted".
     //
-    //    So the row is ensured up front, in a genuinely independent
-    //    transaction that commits immediately and cannot poison or block the
-    //    caller. A unique violation there is the expected outcome for the
-    //    losers and is simply swallowed: the row exists either way.
+    //   b) Creating it on a separate connection to keep the violation out of
+    //      the caller's transaction. That deadlocks under load: the pool holds
+    //      max 5 connections, each in-flight request already owns one for its
+    //      transaction, and asking for a second one that only a committing
+    //      sibling could release means N concurrent requests wait out the full
+    //      60s acquire timeout. Ten concurrent creations returned four.
     //
-    // 2. ALLOCATING the next number is then a pure SELECT ... FOR UPDATE and
-    //    UPDATE against a row that is guaranteed to exist, so it cannot raise a
-    //    unique violation and needs no retry at all.
-    await this._ensureSeries(documentType, { factoryId, financialYearId, prefix });
-
-    const run = (t) => this._allocateOnce(documentType, { factoryId, financialYearId, prefix, transaction: t });
+    // INSERT ... ON CONFLICT DO NOTHING avoids the dilemma outright: it is a
+    // single statement on the existing connection that simply never raises, so
+    // there is no violation to poison the transaction and no second connection
+    // to deadlock on. A concurrent inserter briefly blocks on the index until
+    // the winner commits, then proceeds as a no-op — an ordinary row-lock wait.
+    const run = async (t) => {
+      await this._ensureSeries(documentType, { factoryId, financialYearId, prefix, transaction: t });
+      return this._allocateOnce(documentType, { factoryId, financialYearId, transaction: t });
+    };
     return transaction ? run(transaction) : sequelize.transaction(run);
   }
 
   /**
-   * Creates the series row if it is missing, on its own connection.
-   * Never throws for a concurrent creation — that is the normal path for every
-   * request but the winner.
+   * Creates the series row if it is missing, as a single non-raising statement
+   * on the caller's connection. Safe to call concurrently: the losers insert
+   * nothing and carry on.
    */
-  static async _ensureSeries(documentType, { factoryId, financialYearId, prefix }) {
-    const tenantId = getTenantId();
-    const existing = await DocumentSeries.findOne({ where: { documentType, factoryId, financialYearId } });
+  static async _ensureSeries(documentType, { factoryId, financialYearId, prefix, transaction }) {
+    const existing = await DocumentSeries.findOne({
+      where: { documentType, factoryId, financialYearId },
+      transaction,
+    });
     if (existing) return;
 
-    try {
-      await DocumentSeries.create({
-        tenantId,
-        documentType,
-        factoryId,
-        financialYearId,
-        prefix: await defaultPrefixFor(prefix, documentType, factoryId),
-        nextSequence: 1,
-        padding: 4,
-      });
-    } catch (error) {
-      // Someone else created it first. That is the expected outcome here.
-      if (!(error instanceof UniqueConstraintError)) throw error;
-    }
+    // `ignoreDuplicates` emits ON CONFLICT DO NOTHING with no inference target,
+    // which is what this table needs: the uniqueness is enforced by two PARTIAL
+    // indexes (one for factoryId IS NULL, one for NOT NULL), so naming a single
+    // conflict target would only cover half the cases.
+    await DocumentSeries.bulkCreate(
+      [
+        {
+          tenantId: getTenantId(),
+          documentType,
+          factoryId,
+          financialYearId,
+          prefix: await defaultPrefixFor(prefix, documentType, factoryId, transaction),
+          nextSequence: 1,
+          padding: 4,
+        },
+      ],
+      { ignoreDuplicates: true, transaction }
+    );
   }
 
   static async _allocateOnce(documentType, { factoryId, financialYearId, transaction }) {

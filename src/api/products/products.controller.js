@@ -113,6 +113,11 @@ const deleteMixDesign = asyncHandler(async (req, res) => {
 const cloneMixDesign = asyncHandler(async (req, res) => {
   sendSuccess(res, await BomService.cloneAsDraft(req.params.id, req.body), 'Mix design cloned as a new draft', 201);
 });
+const resolveMixDesign = asyncHandler(async (req, res) => {
+  const { BomService } = require('./bom.service');
+  const data = await BomService.resolveForDate(req.query.productId, req.query.onDate);
+  sendSuccess(res, data, 'Mix design resolved successfully');
+});
 const explodeMixDesign = asyncHandler(async (req, res) => {
   sendSuccess(res, await BomService.explode(req.params.id, req.query.outputQty || 1), 'Mix design exploded successfully');
 });
@@ -144,7 +149,7 @@ const convertUom = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  cloneMixDesign, explodeMixDesign, mixDesignCost,
+  cloneMixDesign, explodeMixDesign, resolveMixDesign, mixDesignCost,
   listUomConversions, createUomConversion, updateUomConversion, deleteUomConversion, convertUom,
   listUoms, getUom, createUom, updateUom, deleteUom,
   listProductCategories, getProductCategory, createProductCategory, updateProductCategory, deleteProductCategory,

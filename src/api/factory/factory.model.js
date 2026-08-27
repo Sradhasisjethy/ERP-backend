@@ -53,6 +53,14 @@ Factory.initAudited(
     // BR-09: material consumption variance beyond this configurable threshold
     // requires supervisor approval. Any non-zero variance still requires a
     // reason regardless of this threshold.
+    // QC-01: opt-in. While false the plant behaves exactly as before — a lot
+    // finishing its curing period goes straight to AVAILABLE. While true, a
+    // lot of a qcRequired product waits in QC_HOLD for a passing FINAL test.
+    qcHoldEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     varianceThresholdPercent: {
       type: DataTypes.DECIMAL(5, 2),
       allowNull: false,

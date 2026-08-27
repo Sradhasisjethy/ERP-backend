@@ -35,11 +35,19 @@ const createEntrySchema = z.object({
   }),
 });
 
+const cancelEntrySchema = z.object({
+  body: z.object({
+    reason: z.string().trim().min(3, 'A cancellation reason is required'),
+  }),
+});
+
 const createWastageSchema = z.object({
   body: z.object({
     factoryId: z.string().uuid(),
     productId: z.string().uuid(),
-    lotId: z.string().uuid().optional(),
+    // Required: wastage is stock that no longer exists, so it must come out
+    // of a specific lot. The UI has always enforced this; the API had not.
+    lotId: z.string().uuid(),
     productionEntryId: z.string().uuid().optional(),
     stage: z.enum(['DEMOULDING', 'STACKING', 'HANDLING', 'TRANSIT']),
     quantity: z.coerce.number().positive(),
@@ -58,6 +66,7 @@ const listQuerySchema = z.object({
   productId: z.string().uuid().optional(),
   status: z.string().optional(),
   stage: z.string().optional(),
+  rawMaterialProductId: z.string().uuid().optional(),
 });
 
-module.exports = { generateProposalSchema, confirmPlanSchema, createEntrySchema, createWastageSchema, listQuerySchema };
+module.exports = { generateProposalSchema, confirmPlanSchema, createEntrySchema, cancelEntrySchema, createWastageSchema, listQuerySchema };

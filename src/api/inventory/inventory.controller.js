@@ -62,4 +62,14 @@ const releaseLotEarly = asyncHandler(async (req, res) => {
   sendSuccess(res, data, 'Lot released early successfully');
 });
 
-module.exports = { listLots, listLedgerEntries, getStockBalance, releaseLotEarly, listAdjustments, createAdjustment };
+const listReservations = asyncHandler(async (req, res) => {
+  const { page, limit, factoryId, productId, status, search } = req.query;
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ReservationService.listAll(Number(page), Number(limit), { productId, status, search, baseWhere });
+  sendList(res, req, data, 'Stock reservations retrieved successfully');
+});
+
+module.exports = {
+  listLots, listLedgerEntries, getStockBalance, releaseLotEarly,
+  listAdjustments, createAdjustment, listReservations,
+};

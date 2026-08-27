@@ -30,6 +30,21 @@ GoodsReceiptLine.initAudited(
       type: DataTypes.DECIMAL(14, 4),
       allowNull: false,
     },
+    // What physically arrived is receivedQty; what entered stock is
+    // acceptedQty. They differ only when a storekeeper turns material away.
+    acceptedQty: {
+      type: DataTypes.DECIMAL(14, 4),
+      allowNull: false,
+    },
+    rejectedQty: {
+      type: DataTypes.DECIMAL(14, 4),
+      allowNull: false,
+      defaultValue: 0,
+    },
+    rejectionReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
     ratePaise: {
       type: DataTypes.BIGINT,
       allowNull: false,
