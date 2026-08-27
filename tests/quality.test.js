@@ -195,7 +195,7 @@ describe('Final inspection — a held lot is not sellable until it passes', () =
     const res = await request(app)
       .put(`/api/v1/quality/${inspectionId}/result`)
       .set('Cookie', adminCookie)
-      .send({ result: 'PASS', testedValue: 31.5, remarks: '28-day cube' });
+      .send({ result: 'PASS', testedValue: 31.5, remarks: 'Cube crushed at 21 days' });
     expect(res.status).toBe(200);
     expect(res.body.data.result).toBe('PASS');
 
@@ -244,6 +244,34 @@ describe('Final inspection — a failed lot is quarantined, not destroyed', () =
     const bal = await availability(qcFactory.id, slab.id);
     // Only the 20 released earlier are promisable; the failed 8 are not.
     expect(Number(bal.available)).toBe(20);
+  });
+});
+
+describe('the switches can actually be set through the API', () => {
+  // Both columns existed and the service read them, but neither was in a
+  // request schema — so quality holds could only be turned on with a SQL
+  // client. A feature nobody can enable is not a feature.
+  it('turns the quality hold at a location on and off', async () => {
+    const off = await request(app).put(`/api/v1/factories/${plainFactory.id}`)
+      .set('Cookie', adminCookie).send({ qcHoldEnabled: true });
+    expect(off.status).toBe(200);
+    expect(off.body.data.qcHoldEnabled).toBe(true);
+
+    const back = await request(app).put(`/api/v1/factories/${plainFactory.id}`)
+      .set('Cookie', adminCookie).send({ qcHoldEnabled: false });
+    expect(back.status).toBe(200);
+    expect(back.body.data.qcHoldEnabled).toBe(false);
+  });
+
+  it('marks a product as needing a test', async () => {
+    const res = await request(app).put(`/api/v1/products/${plainSlab.id}`)
+      .set('Cookie', adminCookie).send({ qcRequired: true });
+    expect(res.status).toBe(200);
+    expect(res.body.data.qcRequired).toBe(true);
+
+    // Put it back so the opt-out tests below still describe an opted-out setup.
+    await request(app).put(`/api/v1/products/${plainSlab.id}`)
+      .set('Cookie', adminCookie).send({ qcRequired: false });
   });
 });
 

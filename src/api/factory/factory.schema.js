@@ -9,6 +9,10 @@ const factoryBody = z.object({
   state: z.string().optional(),
   allowNegativeStock: z.boolean().optional(),
   allowNegativeCash: z.boolean().optional(),
+  // Hold produced lots of qcRequired products until a final inspection
+  // passes. Off by default; without this the column existed but nothing
+  // outside a SQL client could set it.
+  qcHoldEnabled: z.boolean().optional(),
 });
 
 const createFactorySchema = z.object({ body: factoryBody });

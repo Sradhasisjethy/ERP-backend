@@ -75,7 +75,7 @@ class QualityService {
   /**
    * Raises an inspection. A result may be supplied straight away (a slump test
    * read at the mixer) or left PENDING to be recorded later (a cube crushed at
-   * 28 days) — both are ordinary, so neither is the special case.
+   * day 21) — both are ordinary, so neither is the special case.
    */
   static async createInspection(data) {
     return sequelize.transaction(async (transaction) => {
