@@ -12,7 +12,8 @@
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:generate": "sequelize-cli migration:generate --name",
-    "jobs:run": "node src/scripts/runJobs.js"
+    "jobs:run": "node src/scripts/runJobs.js",
+    "roles:ensure": "node src/scripts/ensure-default-roles.js"
   },
   "nodemonConfig": {
     "watch": [

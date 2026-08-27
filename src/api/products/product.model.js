@@ -45,6 +45,13 @@ Product.initAudited(
       type: DataTypes.ENUM('FINISHED_GOOD', 'RAW_MATERIAL'),
       defaultValue: 'FINISHED_GOOD',
     },
+    // QC-01: does a produced lot of this product need a passing test before it
+    // can be sold? Independent of curingDays, which is about age, not strength.
+    qcRequired: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     curingDays: {
       type: DataTypes.INTEGER,
       allowNull: false,

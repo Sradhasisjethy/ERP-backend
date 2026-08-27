@@ -257,38 +257,66 @@ class PurchasingService {
       const grn = await GoodsReceipt.create({ ...data, purchaseOrderId, grnNumber: documentNumber }, { transaction });
 
       for (const line of lines) {
-        const lotNumber = `${documentNumber}-${line.productId.slice(0, 8)}`;
-        const lot = await StockLedgerService.createLot({
-          factoryId: data.factoryId,
-          productId: line.productId,
-          lotNumber,
-          originType: 'PURCHASE',
-          originId: grn.id,
-          originDate: data.receiptDate,
-          quantity: line.receivedQty,
-          transaction,
-        });
+        // QC-01: incoming inspection at the gate. Everything a supplier
+        // delivered used to enter available stock, including material a
+        // storekeeper would have quarantined — there was no way to say "40
+        // bags arrived, 3 were wet". Only the accepted quantity is stocked;
+        // the rejected quantity is recorded on the line and never becomes a
+        // lot, so it cannot be consumed, sold or counted.
+        const rejectedQty = Number(line.rejectedQty || 0);
+        const acceptedQty = Number(line.receivedQty) - rejectedQty;
 
-        await StockLedgerService.postEntry({
-          factoryId: data.factoryId,
-          productId: line.productId,
-          lotId: lot.id,
-          movementType: 'PURCHASE_IN',
-          direction: 'IN',
-          quantity: line.receivedQty,
-          referenceType: 'GoodsReceipt',
-          referenceId: grn.id,
-          transaction,
-        });
+        if (rejectedQty < 0 || acceptedQty < 0) {
+          throw new ValidationError(
+            `Rejected quantity cannot exceed the received quantity (received ${line.receivedQty}, rejected ${rejectedQty})`
+          );
+        }
+        if (rejectedQty > 0 && !line.rejectionReason) {
+          throw new ValidationError('A rejection reason is required when any quantity is rejected');
+        }
+
+        // A wholly rejected line still belongs on the receipt — it is the
+        // record of what the supplier sent and what was refused — but it must
+        // not mint an empty lot, and postEntry rightly refuses a zero movement.
+        let lotId = null;
+        if (acceptedQty > 0) {
+          const lotNumber = `${documentNumber}-${line.productId.slice(0, 8)}`;
+          const lot = await StockLedgerService.createLot({
+            factoryId: data.factoryId,
+            productId: line.productId,
+            lotNumber,
+            originType: 'PURCHASE',
+            originId: grn.id,
+            originDate: data.receiptDate,
+            quantity: acceptedQty,
+            transaction,
+          });
+          lotId = lot.id;
+
+          await StockLedgerService.postEntry({
+            factoryId: data.factoryId,
+            productId: line.productId,
+            lotId: lot.id,
+            movementType: 'PURCHASE_IN',
+            direction: 'IN',
+            quantity: acceptedQty,
+            referenceType: 'GoodsReceipt',
+            referenceId: grn.id,
+            transaction,
+          });
+        }
 
         await GoodsReceiptLine.create(
-          { ...line, goodsReceiptId: grn.id, lotId: lot.id },
+          { ...line, acceptedQty, rejectedQty, goodsReceiptId: grn.id, lotId },
           { transaction }
         );
 
         if (line.purchaseOrderLineId && poLinesById[line.purchaseOrderLineId]) {
+          // Fulfilment counts what was accepted, not what turned up: rejected
+          // material is still owed, so the order stays short until it is
+          // re-delivered.
           const poLine = poLinesById[line.purchaseOrderLineId];
-          await poLine.update({ receivedQty: Number(poLine.receivedQty) + Number(line.receivedQty) }, { transaction });
+          await poLine.update({ receivedQty: Number(poLine.receivedQty) + acceptedQty }, { transaction });
         }
       }
 
@@ -355,7 +383,11 @@ class PurchasingService {
           const poLine = await PurchaseOrderLine.findByPk(line.purchaseOrderLineId, { transaction });
           if (!poLine) continue;
           await poLine.update(
-            { receivedQty: Math.max(0, Number(poLine.receivedQty) - Number(line.receivedQty)) },
+            // Mirror of the receipt path: fulfilment advanced by the ACCEPTED
+            // quantity, so it must roll back by the same figure. Subtracting
+            // receivedQty here would remove more than was ever added whenever
+            // any of the delivery had been rejected.
+            { receivedQty: Math.max(0, Number(poLine.receivedQty) - Number(line.acceptedQty ?? line.receivedQty)) },
             { transaction }
           );
         }

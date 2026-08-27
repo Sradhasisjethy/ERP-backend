@@ -69,6 +69,8 @@ const { PartyAddress } = require('../api/parties/partyAddress.model');
 const { Cheque } = require('../api/payments/cheque.model');
 const { PurchaseIndent, PurchaseIndentLine } = require('../api/purchasing/purchaseIndent.model');
 const { Notification } = require('../api/notifications/notification.model');
+const { QualityInspection } = require('../api/quality/qualityInspection.model');
+const { Vehicle } = require('../api/vehicles/vehicle.model');
 
 // Tenant associations
 Tenant.hasMany(Organization, { foreignKey: 'tenantId' });
@@ -255,4 +257,6 @@ module.exports = {
   PurchaseIndentLine,
   Notification,
   EmployeeDocument,
+  QualityInspection,
+  Vehicle,
 };

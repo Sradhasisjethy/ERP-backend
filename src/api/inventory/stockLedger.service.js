@@ -24,13 +24,41 @@ class StockLedgerService {
    * that has already finished curing).
    */
   static async promoteEligibleLots(factoryId, transaction) {
+    const elapsed = literal(`"originDate" + ("curingDays" || ' days')::interval <= NOW()`);
+
+    // QC-01: where a factory has opted into quality holds, a lot that finishes
+    // curing is old enough to sell but has not been proven strong enough, so it
+    // lands in QC_HOLD instead of AVAILABLE. Only a passing FINAL inspection
+    // moves it on from there — nothing releases it on a timer, which is the
+    // entire point of the gate.
+    const factory = await Factory.findByPk(factoryId, { transaction });
+    if (factory && factory.qcHoldEnabled) {
+      await StockLot.update(
+        { status: 'QC_HOLD' },
+        {
+          where: {
+            factoryId,
+            status: 'CURING',
+            originType: 'PRODUCTION',
+            [Op.and]: [
+              elapsed,
+              literal(`"productId" IN (SELECT "id" FROM "products" WHERE "qcRequired" = true)`),
+            ],
+          },
+          transaction,
+        }
+      );
+    }
+
+    // Everything else still promotes straight to AVAILABLE. Anything routed to
+    // QC_HOLD above is no longer CURING, so it cannot be caught twice.
     await StockLot.update(
       { status: 'AVAILABLE' },
       {
         where: {
           factoryId,
           status: 'CURING',
-          [Op.and]: [literal(`"originDate" + ("curingDays" || ' days')::interval <= NOW()`)],
+          [Op.and]: [elapsed],
         },
         transaction,
       }
@@ -52,7 +80,24 @@ class StockLedgerService {
     // entirely (WITH_CONTRACTOR) — see contractor.service.js.
     const curingEndsAt = new Date(originDate);
     curingEndsAt.setDate(curingEndsAt.getDate() + curingDays);
-    const status = statusOverride || (curingDays > 0 && curingEndsAt > new Date() ? 'CURING' : 'AVAILABLE');
+    let status = statusOverride || (curingDays > 0 && curingEndsAt > new Date() ? 'CURING' : 'AVAILABLE');
+
+    // QC-01: a produced lot that must be tested is never born AVAILABLE, even
+    // with no curing period — otherwise a product with curingDays 0 would slip
+    // past the gate entirely, since promoteEligibleLots only ever looks at
+    // lots that are CURING.
+    //
+    // Deliberately limited to originType PRODUCTION. Incoming supplier quality
+    // is handled at the gate instead, by the accepted/rejected split on the
+    // goods receipt line, and transferred or returned stock was already
+    // inspected upstream — holding it again would quarantine the same units
+    // twice.
+    if (!statusOverride && status === 'AVAILABLE' && originType === 'PRODUCTION') {
+      const { QualityService } = require('../quality/quality.service');
+      if (await QualityService.isHoldRequired(factoryId, productId, transaction)) {
+        status = 'QC_HOLD';
+      }
+    }
 
     // qtyAvailable starts at 0, not `quantity` — postEntry() is the only
     // function allowed to move that number, and every caller here follows
@@ -125,8 +170,10 @@ class StockLedgerService {
       // see. The ledger and the raw lot quantity said the stock was there;
       // availability, reservation and the balance endpoint said it was not.
       //
-      // Only CONSUMED is reversed. CURING, WITH_CONTRACTOR and IN_TRANSIT are
-      // lifecycle states an inbound movement must not silently overwrite.
+      // Only CONSUMED is reversed. CURING, WITH_CONTRACTOR, IN_TRANSIT,
+      // QC_HOLD and QC_FAILED are lifecycle states an inbound movement must not
+      // silently overwrite — stock coming back into a quarantined lot is still
+      // quarantined.
       const status = lot.status === 'CONSUMED' && resultingQty > 0 ? 'AVAILABLE' : lot.status;
       await lot.update({ qtyAvailable: resultingQty, status }, { transaction });
     }

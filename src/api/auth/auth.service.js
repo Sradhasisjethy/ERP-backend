@@ -155,6 +155,24 @@ class AuthService {
     }
     const userJson = user.toJSON();
     userJson.permissions = await this.getPermissionsForUser(user.id, user.role);
+
+    // The tenant's sidebar customisation rides along with the session.
+    //
+    // It cannot come from GET /settings/navigation, because that route is gated
+    // on SETTINGS_READ and almost nobody holds it — the storekeeper would then
+    // see the default menu while the administrator saw the customised one,
+    // which is the opposite of what customising a menu is for. It is a display
+    // preference, not a secret, so every authenticated user gets it here.
+    try {
+      const { TenantSettings } = require('../settings/settings.model');
+      const row = await TenantSettings.findOne({ where: { key: 'navigation' } });
+      userJson.navigationPreferences = row ? row.value : null;
+    } catch {
+      // A missing or unreadable preference must never block sign-in — the UI
+      // falls back to the built-in menu.
+      userJson.navigationPreferences = null;
+    }
+
     return userJson;
   }
 

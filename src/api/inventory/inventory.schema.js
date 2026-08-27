@@ -8,7 +8,16 @@ const listLotsQuerySchema = z.object({
   sortDir: z.enum(['asc', 'desc']).optional(),
   factoryId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
-  status: z.enum(['CURING', 'AVAILABLE', 'WITH_CONTRACTOR', 'IN_TRANSIT', 'CONSUMED']).optional(),
+  status: z.enum(['CURING', 'AVAILABLE', 'WITH_CONTRACTOR', 'IN_TRANSIT', 'CONSUMED', 'QC_HOLD', 'QC_FAILED']).optional(),
+});
+
+const listReservationsQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(10),
+  search: z.string().trim().min(1).optional(),
+  factoryId: z.string().uuid().optional(),
+  productId: z.string().uuid().optional(),
+  status: z.enum(['ACTIVE', 'RELEASED', 'CONSUMED']).optional(),
 });
 
 const listLedgerQuerySchema = z.object({
@@ -60,5 +69,6 @@ const createAdjustmentSchema = z.object({
 const releaseEarlySchema = z.object({ body: z.object({ reason: z.string().min(3) }) });
 
 module.exports = {
+  listReservationsQuerySchema,
   releaseEarlySchema, listLotsQuerySchema, listLedgerQuerySchema, balanceQuerySchema,
   listAdjustmentsQuerySchema, createAdjustmentSchema };

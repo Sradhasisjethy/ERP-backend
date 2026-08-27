@@ -111,9 +111,17 @@ const cloneMixDesignSchema = z.object({ body: z.object({ name: z.string().min(1)
 const activateMixDesignSchema = z.object({ body: z.object({ effectiveFrom: z.string().optional() }) });
 const explodeQuerySchema = z.object({ outputQty: z.coerce.number().positive().default(1) });
 
+// Which mix design is in force for a product on a given date. Production
+// consumes the date-effective recipe, so any screen that lets a user pick a
+// production date has to ask the same question the posting code asks.
+const resolveMixDesignQuerySchema = z.object({
+  productId: z.string().uuid(),
+  onDate: z.string().trim().min(1).optional(),
+});
+
 module.exports = {
   createUomConversionSchema, updateUomConversionSchema, convertQuerySchema,
-  cloneMixDesignSchema, activateMixDesignSchema, explodeQuerySchema,
+  cloneMixDesignSchema, activateMixDesignSchema, explodeQuerySchema, resolveMixDesignQuerySchema,
   createUomSchema,
   updateUomSchema,
   createProductCategorySchema,

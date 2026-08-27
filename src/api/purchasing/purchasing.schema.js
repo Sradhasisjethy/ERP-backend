@@ -30,6 +30,11 @@ const goodsReceiptBody = z.object({
       z.object({
         productId: z.string().uuid(),
         receivedQty: z.coerce.number().positive(),
+        // QC-01: quantity turned away at the gate. Optional and zero by
+        // default, so a receipt that says nothing about quality still stocks
+        // the whole delivery exactly as it did before.
+        rejectedQty: z.coerce.number().min(0).optional(),
+        rejectionReason: z.string().trim().min(3).optional(),
         ratePaise: z.coerce.number().int().min(0),
         purchaseOrderLineId: z.string().uuid().optional(),
       })

@@ -38,7 +38,11 @@ module.exports = async () => {
   await db.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await db.end();
 
-  execFileSync('npx', ['sequelize-cli', 'db:migrate'], {
+  // Invoked through the current node binary rather than `npx`: on Windows npx
+  // is a .cmd shim, and execFileSync does not spawn a shell, so calling it
+  // directly throws ENOENT and the whole suite dies in setup before a single
+  // test runs. require.resolve finds the CLI's own entry point in node_modules.
+  execFileSync(process.execPath, [require.resolve('sequelize-cli/lib/sequelize'), 'db:migrate'], {
     cwd: ROOT,
     env: { ...process.env, NODE_ENV: 'test' },
     stdio: 'pipe',

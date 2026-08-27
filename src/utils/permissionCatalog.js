@@ -105,6 +105,7 @@ const PERMISSION_CATALOG = Object.freeze([
     resources: [
       { key: 'PARTY', label: 'Parties (Customers, Vendors, Contractors, Labour)', actions: CRUD },
       { key: 'PRODUCT', label: 'Products, BOM, UoM & Categories', actions: CRUD },
+      { key: 'VEHICLE', label: 'Vehicles', actions: CRUD },
       { key: 'PRICING', label: 'Price Lists', actions: CRUD },
     ],
   },
@@ -153,6 +154,11 @@ const PERMISSION_CATALOG = Object.freeze([
         ],
       },
       { key: 'WASTAGE', label: 'Wastage', actions: CRUD },
+      {
+        key: 'QUALITY',
+        label: 'Quality Control',
+        actions: CRUD,
+      },
     ],
   },
   {

@@ -50,6 +50,8 @@ productsRouter.get('/uom-convert', authorize('PRODUCT_READ'), validate(schema.co
 
 productsRouter.get('/mix-designs', authorize('PRODUCT_READ'), validate(schema.listQuerySchema, 'query'), controller.listMixDesigns);
 productsRouter.post('/mix-designs', authorize('PRODUCT_CREATE'), validate(schema.createMixDesignSchema), controller.createMixDesign);
+// Declared before '/mix-designs/:id' so Express does not read 'resolve' as an id.
+productsRouter.get('/mix-designs/resolve', authorize('PRODUCT_READ'), validate(schema.resolveMixDesignQuerySchema, 'query'), controller.resolveMixDesign);
 productsRouter.get('/mix-designs/:id', authorize('PRODUCT_READ'), controller.getMixDesign);
 productsRouter.put('/mix-designs/:id', authorize('PRODUCT_MODIFY'), validate(schema.updateMixDesignSchema), controller.updateMixDesign);
 productsRouter.put('/mix-designs/:id/activate', authorize('PRODUCT_MODIFY'), validate(schema.activateMixDesignSchema), controller.activateMixDesign);
