@@ -28,6 +28,10 @@ FinancialYear.initScoped(
       type: DataTypes.DATEONLY,
       allowNull: false,
     },
+    status: {
+      type: DataTypes.ENUM('PLANNED', 'ACTIVE', 'SOFT_CLOSED', 'CLOSED'),
+      defaultValue: 'PLANNED',
+    },
     isCurrent: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,

@@ -4,6 +4,7 @@ const { Tenant } = require('../api/organization/tenant.model');
 const { Organization } = require('../api/organization/organization.model');
 const { Office } = require('../api/organization/office.model');
 const { Department } = require('../api/organization/department.model');
+const { OfficeDepartment } = require('../api/organization/officeDepartment.model');
 const { AdGroup } = require('../api/roles/role.model');
 const { AdGroupMember } = require('../api/roles/adGroupMember.model');
 const { TenantSettings } = require('../api/settings/settings.model');
@@ -155,6 +156,20 @@ Factory.belongsTo(Organization, { foreignKey: 'organizationId' });
 Office.hasMany(User, { foreignKey: 'officeId' });
 User.belongsTo(Office, { foreignKey: 'officeId' });
 
+// Office <-> Department Many-to-Many associations
+Office.belongsToMany(Department, {
+  through: OfficeDepartment,
+  foreignKey: 'officeId',
+  otherKey: 'departmentId',
+  as: 'departments',
+});
+Department.belongsToMany(Office, {
+  through: OfficeDepartment,
+  foreignKey: 'departmentId',
+  otherKey: 'officeId',
+  as: 'offices',
+});
+
 // Department associations
 Department.hasMany(User, { foreignKey: 'departmentId' });
 User.belongsTo(Department, { foreignKey: 'departmentId' });
@@ -190,6 +205,7 @@ module.exports = {
   Organization,
   Office,
   Department,
+  OfficeDepartment,
   AdGroup,
   AdGroupMember,
   TenantSettings,

@@ -13,6 +13,11 @@ const {
   listFinancialYears,
   getCurrentFinancialYear,
   createFinancialYear,
+  updateFinancialYear,
+  updateFinancialYearStatus,
+  getFinancialYearPeriods,
+  getCloseChecklist,
+  deleteFinancialYear,
   setCurrentFinancialYear,
   listAssignedUsers,
   assignUser,
@@ -22,6 +27,8 @@ const {
   createFactorySchema,
   updateFactorySchema,
   createFinancialYearSchema,
+  updateFinancialYearSchema,
+  updateFinancialYearStatusSchema,
   assignUserFactorySchema,
   listQuerySchema,
 } = require('./factory.schema');
@@ -44,7 +51,12 @@ factoryRouter.delete('/factories/:id/users/:userId', authorize('FACTORY_DELETE')
 // Financial Years
 factoryRouter.get('/financial-years', authorize('FACTORY_READ'), listFinancialYears);
 factoryRouter.get('/financial-years/current', authorize('FACTORY_READ'), getCurrentFinancialYear);
+factoryRouter.get('/financial-years/:id/periods', authorize('FACTORY_READ'), getFinancialYearPeriods);
+factoryRouter.get('/financial-years/:id/close-checklist', authorize('FACTORY_READ'), getCloseChecklist);
 factoryRouter.post('/financial-years', authorize('FACTORY_CREATE'), validate(createFinancialYearSchema), createFinancialYear);
+factoryRouter.put('/financial-years/:id', authorize('FACTORY_MODIFY'), validate(updateFinancialYearSchema), updateFinancialYear);
+factoryRouter.patch('/financial-years/:id/status', authorize('FACTORY_MODIFY'), validate(updateFinancialYearStatusSchema), updateFinancialYearStatus);
+factoryRouter.delete('/financial-years/:id', authorize('FACTORY_DELETE'), deleteFinancialYear);
 factoryRouter.put('/financial-years/:id/set-current', authorize('FACTORY_MODIFY'), setCurrentFinancialYear);
 
 module.exports = { factoryRouter };

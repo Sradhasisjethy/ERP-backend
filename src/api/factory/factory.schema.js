@@ -23,13 +23,20 @@ const updateFactorySchema = z.object({
 });
 
 const financialYearBody = z.object({
-  code: z.string().min(1),
-  startDate: z.string(),
-  endDate: z.string(),
+  code: z.string().trim().min(1, 'Code is required'),
+  startDate: z.string().trim().min(1, 'Start date is required'),
+  endDate: z.string().trim().optional(),
+  status: z.enum(['PLANNED', 'ACTIVE', 'SOFT_CLOSED', 'CLOSED']).optional(),
+  isCurrent: z.boolean().optional(),
 });
 
 const createFinancialYearSchema = z.object({ body: financialYearBody });
 const updateFinancialYearSchema = z.object({ body: financialYearBody.partial() });
+const updateFinancialYearStatusSchema = z.object({
+  body: z.object({
+    status: z.enum(['PLANNED', 'ACTIVE', 'SOFT_CLOSED', 'CLOSED']),
+  }),
+});
 
 const assignUserFactorySchema = z.object({
   body: z.object({ userId: z.string().uuid() }),
@@ -51,6 +58,7 @@ module.exports = {
   updateFactorySchema,
   createFinancialYearSchema,
   updateFinancialYearSchema,
+  updateFinancialYearStatusSchema,
   assignUserFactorySchema,
   listQuerySchema,
 };
