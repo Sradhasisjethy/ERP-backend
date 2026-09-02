@@ -11,10 +11,13 @@ const startServer = async () => {
     await sequelize.authenticate();
     logger.info('Database connection has been established successfully.');
 
-    // In production, use migrations instead of sync
     if (env.NODE_ENV === 'development') {
-      await sequelize.sync({ alter: true });
-      logger.info('Database synchronized (alter mode).');
+      try {
+        await sequelize.sync();
+        logger.info('Database synchronized.');
+      } catch (syncError) {
+        logger.warn('Sequelize sync warning (skipped alter): ' + (syncError.message || syncError));
+      }
     }
 
     startScheduler();

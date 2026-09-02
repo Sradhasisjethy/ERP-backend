@@ -27,10 +27,11 @@ const recordLogin = async (req, user) => {
 };
 
 const setCookies = (res, accessToken, refreshToken) => {
+  const isProd = env.NODE_ENV === 'production';
   const cookieOptions = {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: isProd,
+    sameSite: isProd ? 'strict' : 'lax',
     path: '/',
   };
 
