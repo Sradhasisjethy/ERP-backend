@@ -19,6 +19,10 @@ Uom.initAudited(
       type: DataTypes.STRING,
       allowNull: false,
     },
+    uqc: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     status: {
       type: DataTypes.ENUM('active', 'inactive'),
       defaultValue: 'active',

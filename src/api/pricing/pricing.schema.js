@@ -3,14 +3,20 @@ const { z } = require('zod');
 const priceListBody = z.object({
   name: z.string().min(1),
   priceType: z.enum(['RETAIL', 'WHOLESALE', 'PARTY_SPECIFIC', 'CONTRACTOR_RATE']),
-  partyId: z.string().uuid().optional(),
+  partyId: z.string().uuid().nullable().optional().or(z.literal('')),
+  customerTier: z.string().nullable().optional(),
+  effectiveFrom: z.string().nullable().optional(),
+  validUntil: z.string().nullable().optional(),
+  rateBasis: z.enum(['TAX_EXCLUSIVE', 'TAX_INCLUSIVE']).optional(),
   isDefault: z.boolean().optional(),
   items: z
     .array(
       z.object({
         productId: z.string().uuid(),
         ratePaise: z.coerce.number().int().min(0),
-        effectiveFrom: z.string().optional(),
+        minQuantity: z.coerce.number().min(0).optional(),
+        discountPercent: z.coerce.number().min(0).max(100).optional(),
+        effectiveFrom: z.string().nullable().optional(),
       })
     )
     .optional(),
@@ -24,7 +30,9 @@ const upsertPriceListItemSchema = z.object({
   body: z.object({
     productId: z.string().uuid(),
     ratePaise: z.coerce.number().int().min(0),
-    effectiveFrom: z.string().optional(),
+    minQuantity: z.coerce.number().min(0).optional(),
+    discountPercent: z.coerce.number().min(0).max(100).optional(),
+    effectiveFrom: z.string().nullable().optional(),
   }),
 });
 

@@ -115,7 +115,10 @@ class ProductsService {
       where,
       limit,
       offset,
-      include: [{ model: ProductCategory, as: 'subCategories' }],
+      include: [
+        { model: ProductCategory, as: 'parentCategory', attributes: ['id', 'name', 'code'] },
+        { model: ProductCategory, as: 'subCategories' },
+      ],
       order: toOrder(sortBy, sortDir, SORTABLE.category, [['name', 'ASC']]),
     });
   }

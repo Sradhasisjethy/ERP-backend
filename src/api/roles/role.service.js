@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { AdGroup } = require('./role.model');
 const { AdGroupMember } = require('./adGroupMember.model');
+const { User } = require('../users/user.model');
 const { NotFoundError, ForbiddenError } = require('../../core/AppError');
 const { SystemRoles } = require('../../utils/constants');
 const {
@@ -101,7 +102,10 @@ class RoleService {
 
   static async getMembers(adGroupId) {
     const role = await this.getRole(adGroupId);
-    return AdGroupMember.findAll({ where: { adGroupId: role.id } });
+    return AdGroupMember.findAll({
+      where: { adGroupId: role.id },
+      include: [{ model: User, attributes: ['id', 'firstName', 'lastName', 'email', 'avatar', 'role'] }],
+    });
   }
 
   static async assignMember(adGroupId, employeeId) {

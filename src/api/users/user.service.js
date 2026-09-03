@@ -1,10 +1,8 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
-const { User } = require('./user.model');
-const { Department } = require('../organization/department.model');
-const { Office } = require('../organization/office.model');
-const { Organization } = require('../organization/organization.model');
+const { User, Department, Office, Organization, AdGroupMember, AdGroup, Tenant } = require('../../models');
+const { getTenantId } = require('../../core/tenantContext');
 const { NotFoundError } = require('../../core/AppError');
 const emailService = require('../../services/email.service');
 
@@ -37,6 +35,11 @@ class UserService {
         { model: Department, attributes: ['id', 'name', 'code'] },
         { model: Office, attributes: ['id', 'name', 'city', 'country'] },
         { model: Organization, attributes: ['id', 'name', 'code'] },
+        {
+          model: AdGroupMember,
+          attributes: ['id', 'adGroupId'],
+          include: [{ model: AdGroup, attributes: ['id', 'name', 'code'] }],
+        },
       ],
       order: [['createdAt', 'DESC']],
     });
@@ -58,6 +61,11 @@ class UserService {
         { model: Department, attributes: ['id', 'name', 'code'] },
         { model: Office, attributes: ['id', 'name', 'city', 'country'] },
         { model: Organization, attributes: ['id', 'name', 'code'] },
+        {
+          model: AdGroupMember,
+          attributes: ['id', 'adGroupId'],
+          include: [{ model: AdGroup, attributes: ['id', 'name', 'code'] }],
+        },
       ],
     });
 
@@ -69,7 +77,7 @@ class UserService {
   }
 
   async create(data) {
-    const { password, sendInvite = true, ...rest } = data;
+    const { password, sendInvite = true, roleId, ...rest } = data;
     
     // If password provided, hash it; otherwise generate random secure initial hash
     const rawPassword = password || crypto.randomBytes(32).toString('hex');
@@ -86,6 +94,15 @@ class UserService {
       resetPasswordToken: hashedToken,
       resetPasswordExpires,
     });
+
+    if (roleId) {
+      const activeTenantId = getTenantId() || user.tenantId || (await Tenant.findOne())?.id;
+      await AdGroupMember.create({
+        adGroupId: roleId,
+        employeeId: user.id,
+        tenantId: activeTenantId,
+      });
+    }
 
     // Send Welcome / Set Password Invitation Email
     if (sendInvite || !password) {
@@ -115,7 +132,21 @@ class UserService {
       throw new NotFoundError('User not found');
     }
 
-    await user.update(data);
+    const { roleId, ...rest } = data;
+    await user.update(rest);
+
+    if (roleId !== undefined) {
+      await AdGroupMember.destroy({ where: { employeeId: user.id } });
+      if (roleId) {
+        const activeTenantId = getTenantId() || user.tenantId || (await Tenant.findOne())?.id;
+        await AdGroupMember.create({
+          adGroupId: roleId,
+          employeeId: user.id,
+          tenantId: activeTenantId,
+        });
+      }
+    }
+
     return user;
   }
 

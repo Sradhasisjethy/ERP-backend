@@ -101,4 +101,10 @@ const verifyDocument = asyncHandler(async (req, res) => {
   sendSuccess(res, doc, `Document ${isVerified ? 'verified' : 'unverified'} successfully`);
 });
 
-module.exports = { list, getById, create, update, deleteUser, uploadDocument, listDocuments, deleteDocument, verifyDocument };
+const uploadAvatar = asyncHandler(async (req, res) => {
+  if (!req.file) throw new Error('No image file uploaded');
+  const url = `/uploads/avatars/${req.file.filename}`;
+  sendSuccess(res, { url, filename: req.file.filename, size: req.file.size }, 'Avatar uploaded successfully', 201);
+});
+
+module.exports = { list, getById, create, update, deleteUser, uploadDocument, listDocuments, deleteDocument, verifyDocument, uploadAvatar };

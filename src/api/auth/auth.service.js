@@ -30,6 +30,30 @@ class AuthService {
     } else if (role === SystemRoles.MANAGER) {
       permissions.add(WebPermissions.EMPLOYEE_READ);
       permissions.add(WebPermissions.ORG_READ);
+      permissions.add(WebPermissions.PARTY_READ);
+      permissions.add(WebPermissions.PRODUCT_READ);
+      permissions.add(WebPermissions.INVENTORY_READ);
+      permissions.add(WebPermissions.SALES_READ);
+      permissions.add(WebPermissions.PURCHASE_READ);
+      permissions.add(WebPermissions.PRODUCTION_READ);
+      permissions.add(WebPermissions.QUALITY_READ);
+      permissions.add(WebPermissions.TRANSFER_READ);
+      permissions.add(WebPermissions.DISPATCH_READ);
+      permissions.add(WebPermissions.INVOICE_READ);
+    } else if (role === SystemRoles.EMPLOYEE) {
+      // Standard operational read access for employees
+      permissions.add(WebPermissions.EMPLOYEE_READ);
+      permissions.add(WebPermissions.ORG_READ);
+      permissions.add(WebPermissions.PARTY_READ);
+      permissions.add(WebPermissions.PRODUCT_READ);
+      permissions.add(WebPermissions.INVENTORY_READ);
+      permissions.add(WebPermissions.SALES_READ);
+      permissions.add(WebPermissions.PURCHASE_READ);
+      permissions.add(WebPermissions.PRODUCTION_READ);
+      permissions.add(WebPermissions.QUALITY_READ);
+      permissions.add(WebPermissions.TRANSFER_READ);
+      permissions.add(WebPermissions.DISPATCH_READ);
+      permissions.add(WebPermissions.INVOICE_READ);
     }
 
     if (userId) {

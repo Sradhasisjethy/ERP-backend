@@ -54,6 +54,26 @@ User.initScoped(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    address: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    city: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    state: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    country: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    pincode: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
     employeeType: {
       type: DataTypes.ENUM(...Object.values(EmployeeType)),
       defaultValue: EmployeeType.FULL_TIME,
@@ -82,12 +102,28 @@ User.initScoped(
       type: DataTypes.DATEONLY,
       allowNull: true,
     },
+    resignationDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    gender: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    assetName: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    assetCode: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
     role: {
       type: DataTypes.ENUM(...Object.values(SystemRoles)),
       defaultValue: SystemRoles.EMPLOYEE,
     },
     avatar: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
     resetPasswordToken: {

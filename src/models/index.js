@@ -198,6 +198,7 @@ AuditLog.belongsTo(User, { foreignKey: 'userId' });
 
 // Party extensions (M04)
 Party.hasOne(LabourWageProfile, { as: 'wageProfile', foreignKey: 'partyId' });
+Party.belongsTo(Party, { as: 'contractor', foreignKey: 'contractorId' });
 
 module.exports = {
   User,

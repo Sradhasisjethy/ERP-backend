@@ -91,6 +91,29 @@ Product.initAudited(
       allowNull: false,
       defaultValue: 0,
     },
+    sellingPricePaise: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    openingStockQty: {
+      type: DataTypes.DECIMAL(14, 4),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    openingStockRatePaise: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      defaultValue: 0,
+    },
+    openingStockDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    defaultLocation: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     status: {
       type: DataTypes.ENUM('active', 'inactive'),
       defaultValue: 'active',

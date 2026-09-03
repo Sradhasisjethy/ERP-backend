@@ -3,6 +3,7 @@ const { z } = require('zod');
 const uomBody = z.object({
   name: z.string().min(1),
   code: z.string().min(1),
+  uqc: z.string().optional(),
 });
 const createUomSchema = z.object({ body: uomBody });
 const updateUomSchema = z.object({ body: uomBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }) });
@@ -10,7 +11,7 @@ const updateUomSchema = z.object({ body: uomBody.partial().extend({ status: z.en
 const productCategoryBody = z.object({
   name: z.string().min(1),
   code: z.string().optional(),
-  parentId: z.string().uuid().optional(),
+  parentId: z.string().uuid().nullable().optional(),
 });
 const createProductCategorySchema = z.object({ body: productCategoryBody });
 const updateProductCategorySchema = z.object({
@@ -21,6 +22,8 @@ const hsnCodeBody = z.object({
   code: z.string().min(1),
   description: z.string().optional(),
   gstRatePercent: z.coerce.number().min(0).max(100).optional(),
+  codeType: z.enum(['HSN', 'SAC']).optional(),
+  cessPercent: z.coerce.number().min(0).max(100).optional(),
 });
 const createHsnCodeSchema = z.object({ body: hsnCodeBody });
 const updateHsnCodeSchema = z.object({ body: hsnCodeBody.partial().extend({ status: z.enum(['active', 'inactive']).optional() }) });
@@ -37,6 +40,11 @@ const productBody = z.object({
   // be sold? Independent of curingDays, which is about age, not strength.
   qcRequired: z.boolean().optional(),
   standardCostPaise: z.coerce.number().int().min(0).optional(),
+  sellingPricePaise: z.coerce.number().int().min(0).optional(),
+  openingStockQty: z.coerce.number().min(0).optional(),
+  openingStockRatePaise: z.coerce.number().int().min(0).optional(),
+  openingStockDate: z.string().optional(),
+  defaultLocation: z.string().optional(),
   reorderLevel: z.coerce.number().min(0).optional(),
   minStock: z.coerce.number().min(0).optional(),
   maxStock: z.coerce.number().min(0).optional(),
@@ -63,6 +71,8 @@ const mixDesignBody = z.object({
   effectiveFrom: z.string().optional(),
   outputQuantity: z.coerce.number().positive().optional(),
   bomType: z.enum(['MANUFACTURING', 'ASSEMBLY']).optional(),
+  laborCostPaise: z.coerce.number().int().min(0).optional(),
+  overheadCostPaise: z.coerce.number().int().min(0).optional(),
   // Create-and-activate in one step; the usual choice for a product's first BOM.
   activate: z.boolean().optional(),
   lines: z

@@ -25,6 +25,16 @@ PriceListItem.initAudited(
       type: DataTypes.BIGINT,
       allowNull: false,
     },
+    minQuantity: {
+      type: DataTypes.DECIMAL(14, 4),
+      allowNull: false,
+      defaultValue: 1,
+    },
+    discountPercent: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
     effectiveFrom: {
       type: DataTypes.DATEONLY,
       allowNull: true,

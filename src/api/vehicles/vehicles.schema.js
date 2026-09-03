@@ -3,15 +3,23 @@ const { z } = require('zod');
 const vehicleBody = {
   registrationNumber: z.string().trim().min(4).max(20),
   vehicleType: z.enum(['TRUCK', 'TRAILER', 'TIPPER', 'TRANSIT_MIXER', 'PICKUP', 'OTHER']).optional(),
+  bodyConfiguration: z.string().trim().optional(),
   capacityTonnes: z.coerce.number().positive().optional(),
-  ownership: z.enum(['OWNED', 'HIRED']).optional(),
-  transporterPartyId: z.string().uuid().optional().nullable(),
-  driverName: z.string().trim().min(1).optional(),
-  driverPhone: z.string().trim().min(6).max(20).optional(),
-  insuranceExpiry: z.string().optional(),
-  fitnessExpiry: z.string().optional(),
-  permitExpiry: z.string().optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  tareWeightTonnes: z.coerce.number().min(0).optional(),
+  grossVehicleWeightTonnes: z.coerce.number().min(0).optional(),
+  ownership: z.enum(['OWNED', 'HIRED', 'MARKET', 'ATTACHED']).optional(),
+  transporterPartyId: z.string().uuid().optional().nullable().or(z.literal('')),
+  driverName: z.string().trim().optional(),
+  driverPhone: z.string().trim().optional(),
+  driverLicenseNumber: z.string().trim().optional(),
+  insuranceExpiry: z.string().optional().nullable().or(z.literal('')),
+  fitnessExpiry: z.string().optional().nullable().or(z.literal('')),
+  permitExpiry: z.string().optional().nullable().or(z.literal('')),
+  puccExpiry: z.string().optional().nullable().or(z.literal('')),
+  fastagNumber: z.string().trim().optional(),
+  gpsDeviceId: z.string().trim().optional(),
+  status: z.enum(['active', 'maintenance', 'blacklisted', 'inactive']).optional(),
+  blacklistReason: z.string().trim().optional(),
   notes: z.string().trim().optional(),
 };
 
@@ -26,9 +34,9 @@ const listQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   sortBy: z.string().trim().min(1).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  status: z.enum(['active', 'maintenance', 'blacklisted', 'inactive']).optional(),
   vehicleType: z.enum(['TRUCK', 'TRAILER', 'TIPPER', 'TRANSIT_MIXER', 'PICKUP', 'OTHER']).optional(),
-  ownership: z.enum(['OWNED', 'HIRED']).optional(),
+  ownership: z.enum(['OWNED', 'HIRED', 'MARKET', 'ATTACHED']).optional(),
 });
 
 module.exports = { createVehicleSchema, updateVehicleSchema, listQuerySchema };

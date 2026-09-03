@@ -49,13 +49,13 @@ class VehicleService {
   }
 
   static async assertTransporter(data) {
-    if (data.ownership !== 'HIRED') return;
-    if (!data.transporterPartyId) {
-      throw new ValidationError('A hired vehicle needs the transporter it belongs to, so freight can be billed to them');
+    if (['HIRED', 'MARKET', 'ATTACHED'].includes(data.ownership)) {
+      if (data.transporterPartyId) {
+        const party = await Party.findByPk(data.transporterPartyId);
+        if (!party) throw new NotFoundError('Transporter not found');
+        if (party.status !== 'active') throw new ValidationError('That transporter is inactive');
+      }
     }
-    const party = await Party.findByPk(data.transporterPartyId);
-    if (!party) throw new NotFoundError('Transporter not found');
-    if (party.status !== 'active') throw new ValidationError('That transporter is inactive');
   }
 
   static async create(data) {
