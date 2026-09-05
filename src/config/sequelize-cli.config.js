@@ -1,6 +1,7 @@
 // Plain-JS config consumed by sequelize-cli (`npm run migrate`). Kept separate from
 // env.js because sequelize-cli loads this file directly, before any zod validation runs.
 require('dotenv').config();
+const { resolveTestDatabase } = require('./testDatabaseName');
 
 const base = {
   username: process.env.DB_USER,
@@ -18,7 +19,10 @@ module.exports = {
   },
   test: {
     ...base,
-    database: process.env.DB_NAME_TEST || process.env.DB_NAME,
+    // Shares one resolver with the Sequelize connection and the Jest
+    // globalSetup — this line used to fall back to DB_NAME, which pointed
+    // `db:migrate` at the development database whenever DB_NAME_TEST was unset.
+    database: resolveTestDatabase(),
     logging: false,
   },
   production: {

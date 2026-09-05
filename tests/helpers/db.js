@@ -1,8 +1,36 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 const { sequelize } = require('../../src/config/database');
+const { resolveTestDatabase } = require('../../src/config/testDatabaseName');
 
 const ROOT = path.resolve(__dirname, '../..');
+
+/**
+ * Refuses to wipe anything that is not the test database.
+ *
+ * Both operations below act on whatever `src/config/database.js` connected to,
+ * and that module picks its database from NODE_ENV. Jest sets NODE_ENV to
+ * 'test' only when it is not already set, so a shell that exports NODE_ENV
+ * (or a CI job that sets it to anything else) leaves the connection pointed at
+ * DB_NAME — the development database — while globalSetup still rebuilds the
+ * _test one. The suite would then truncate ~70 tables of live data and pass,
+ * which is how the development database was lost once already.
+ *
+ * Checking the connection itself rather than trusting NODE_ENV closes that: it
+ * does not matter how the wrong database got selected, only that it is wrong.
+ */
+const assertTestDatabase = () => {
+  const connected = sequelize.getDatabaseName();
+  const expected = resolveTestDatabase();
+  if (connected !== expected) {
+    throw new Error(
+      `Refusing to wipe "${connected}": the test helpers expected to be connected to ` +
+        `"${expected}". NODE_ENV is "${process.env.NODE_ENV}" — it must be "test" for ` +
+        'src/config/database.js to select the test database. Run the suite with NODE_ENV ' +
+        'unset (jest sets it) or explicitly set to "test".'
+    );
+  }
+};
 
 /**
  * Builds the test schema the same way production gets it: by running the
@@ -27,6 +55,7 @@ const migrateFresh = () => {
 };
 
 const dropSchema = async () => {
+  assertTestDatabase();
   await sequelize.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
 };
 
@@ -37,6 +66,7 @@ const dropSchema = async () => {
  * unapplied to any later tooling.
  */
 const resetDatabase = async () => {
+  assertTestDatabase();
   const [rows] = await sequelize.query(
     `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'SequelizeMeta'`
   );
@@ -45,4 +75,4 @@ const resetDatabase = async () => {
   await sequelize.query(`TRUNCATE ${list} RESTART IDENTITY CASCADE;`);
 };
 
-module.exports = { resetDatabase, migrateFresh, dropSchema };
+module.exports = { resetDatabase, migrateFresh, dropSchema, assertTestDatabase };
