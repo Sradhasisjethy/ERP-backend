@@ -1,3 +1,4 @@
+const jwt = require('jsonwebtoken');
 const { asyncHandler } = require('../../core/asyncHandler');
 const { authService } = require('./auth.service');
 const { sendSuccess } = require('../../utils/response');
@@ -36,23 +37,29 @@ const setCookies = (res, accessToken, refreshToken) => {
   };
 
   if (accessToken) {
-    res.cookie('accessToken', accessToken, {
-      ...cookieOptions,
-      maxAge: 15 * 60 * 1000, // 15 minutes
-    });
+    // Read off the token rather than hard-coded. The two used to disagree —
+    // JWT_ACCESS_EXPIRATION defaults to an hour while the cookie was capped at
+    // fifteen minutes — so the browser discarded a token that was still valid
+    // for another forty-five, and every session leaned on the refresh flow to
+    // paper over it.
+    const claims = jwt.decode(accessToken);
+    const maxAge = claims?.exp ? claims.exp * 1000 - Date.now() : 15 * 60 * 1000;
+    res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: Math.max(maxAge, 0) });
   }
 
   if (refreshToken) {
-    res.cookie('refreshToken', refreshToken, {
-      ...cookieOptions,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    const claims = jwt.decode(refreshToken);
+    const maxAge = claims?.exp ? claims.exp * 1000 - Date.now() : 7 * 24 * 60 * 60 * 1000;
+    res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: Math.max(maxAge, 0) });
   }
 };
 
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  const result = await authService.login(email, password);
+  const result = await authService.login(email, password, {
+    userAgent: req.get('user-agent'),
+    ipAddress: req.ip,
+  });
 
   setCookies(res, result.accessToken, result.refreshToken);
 
@@ -72,7 +79,10 @@ const login = asyncHandler(async (req, res) => {
 
 const refresh = asyncHandler(async (req, res) => {
   const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
-  const result = await authService.refresh(refreshToken);
+  const result = await authService.refresh(refreshToken, {
+    userAgent: req.get('user-agent'),
+    ipAddress: req.ip,
+  });
 
   setCookies(res, result.accessToken, result.refreshToken);
 
@@ -83,6 +93,11 @@ const refresh = asyncHandler(async (req, res) => {
 });
 
 const logout = asyncHandler(async (req, res) => {
+  // Clearing cookies only ever ended the session on this browser. The refresh
+  // token itself stayed valid for its full seven days, so a copy of it kept
+  // working long after the user believed they had signed out.
+  await authService.logout(req.cookies?.refreshToken || req.body?.refreshToken);
+
   res.clearCookie('accessToken', { path: '/' });
   res.clearCookie('refreshToken', { path: '/' });
   sendSuccess(res, null, 'Logged out successfully');

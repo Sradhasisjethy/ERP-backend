@@ -78,6 +78,7 @@ const { OverrideReasonCode } = require('../api/bundles/overrideReasonCode.model'
 const { BundleComponentSuppression } = require('../api/bundles/bundleComponentSuppression.model');
 const { BundleOverrideAudit } = require('../api/bundles/bundleOverrideAudit.model');
 const { IdempotencyKey } = require('../api/idempotency/idempotencyKey.model');
+const { RefreshToken } = require('../api/auth/refreshToken.model');
 
 // Tenant associations
 Tenant.hasMany(Organization, { foreignKey: 'tenantId' });
@@ -288,4 +289,5 @@ module.exports = {
   BundleComponentSuppression,
   BundleOverrideAudit,
   IdempotencyKey,
+  RefreshToken,
 };

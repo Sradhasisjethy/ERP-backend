@@ -10,6 +10,15 @@ const { UnauthorizedError, NotFoundError, BadRequestError } = require('../../cor
 const { expandPermissions } = require('../../utils/permissionCatalog');
 const emailService = require('../../services/email.service');
 const { WebPermissions, SystemRoles, EmployeeStatus } = require('../../utils/constants');
+const { RefreshToken } = require('./refreshToken.model');
+
+/**
+ * Seven days, in one place. The cookie's lifetime is derived from these rather
+ * than written out again — the two used to disagree, so the browser threw away
+ * an access token that was still valid for another forty-five minutes.
+ */
+const REFRESH_TTL_DAYS = 7;
+const REFRESH_TTL_MS = REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000;
 
 class AuthService {
   /**
@@ -85,11 +94,47 @@ class AuthService {
     );
   }
 
-  generateRefreshToken(userId) {
-    return jwt.sign({ userId }, env.JWT_REFRESH_SECRET, {
-      expiresIn: '7d',
+  /**
+   * Issues a refresh token and records it as live.
+   *
+   * The token carries a `jti` and this is the only thing that makes it
+   * revocable: a bare signed JWT is valid until it expires no matter what
+   * happens to the account, so logout could not end a session and a copied
+   * token outlived the one that created it.
+   */
+  async issueRefreshToken(user, { context = {}, replaces = null } = {}) {
+    const jti = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
+
+    await RefreshToken.create({
+      tenantId: user.tenantId,
+      userId: user.id,
+      jti,
+      expiresAt,
+      userAgent: (context.userAgent || '').slice(0, 300) || null,
+      ipAddress: context.ipAddress || null,
+    });
+
+    if (replaces) {
+      await RefreshToken.update(
+        { replacedBy: jti },
+        { where: { jti: replaces } }
+      );
+    }
+
+    return jwt.sign({ userId: user.id, jti }, env.JWT_REFRESH_SECRET, {
+      expiresIn: `${REFRESH_TTL_DAYS}d`,
       algorithm: 'HS256',
     });
+  }
+
+  /** Ends sessions. `jti` for one device, or every token the user holds. */
+  static async revokeRefreshTokens({ jti, userId, reason }) {
+    const where = jti ? { jti } : { userId };
+    await RefreshToken.update(
+      { revokedAt: new Date(), revokedReason: reason || 'REVOKED' },
+      { where: { ...where, revokedAt: null } }
+    );
   }
 
   /**
@@ -117,7 +162,7 @@ class AuthService {
     }
   }
 
-  async login(email, password) {
+  async login(email, password, context = {}) {
     const user = await User.scope('withPassword').findOne({ where: { email } });
     if (!user) {
       throw new UnauthorizedError('Invalid credentials');
@@ -131,7 +176,7 @@ class AuthService {
     AuthService.assertUsable(user);
 
     const accessToken = await this.generateAccessToken(user);
-    const refreshToken = this.generateRefreshToken(user.id);
+    const refreshToken = await this.issueRefreshToken(user, { context });
 
     const userJson = user.toJSON();
     delete userJson.passwordHash;
@@ -144,7 +189,7 @@ class AuthService {
     };
   }
 
-  async refresh(refreshToken) {
+  async refresh(refreshToken, context = {}) {
     if (!refreshToken) {
       throw new UnauthorizedError('No refresh token provided');
     }
@@ -165,9 +210,57 @@ class AuthService {
     // stateless and lives for 15 minutes.
     AuthService.assertUsable(user);
 
+    // The signature only proves the token was issued by us; this proves it has
+    // not since been ended. Without it, logout, a password reset and disabling
+    // an account were all advisory for up to seven days.
+    const stored = decoded.jti
+      ? await RefreshToken.unscoped().findOne({ where: { jti: decoded.jti } })
+      : null;
+
+    if (!stored) {
+      // Either a token issued before this table existed, or one that was never
+      // ours. Both are refused: accepting unknown tokens would leave exactly
+      // the hole this closes.
+      throw new UnauthorizedError('Invalid refresh token');
+    }
+
+    if (stored.revokedAt) {
+      // Only a token spent by ROTATION is evidence of a copy: the legitimate
+      // holder moved on to its replacement, so whoever still has this one
+      // should not. Every session for the user ends.
+      //
+      // A token revoked any other way — logout, a password reset — is just
+      // stale. Refuse it and stop there. Treating those as theft would mean a
+      // single stray retry from a browser that had signed out took down the
+      // user's other devices, which is its own kind of outage.
+      if (stored.revokedReason === 'ROTATED') {
+        await AuthService.revokeRefreshTokens({ userId: stored.userId, reason: 'REUSE_DETECTED' });
+      }
+      throw new UnauthorizedError('Invalid refresh token');
+    }
+
+    if (stored.expiresAt <= new Date()) {
+      throw new UnauthorizedError('Invalid refresh token');
+    }
+
+    // Rotate: the presented token is spent, and a fresh one takes its place.
+    await AuthService.revokeRefreshTokens({ jti: decoded.jti, reason: 'ROTATED' });
     const accessToken = await this.generateAccessToken(user);
-    const newRefreshToken = this.generateRefreshToken(user.id);
+    const newRefreshToken = await this.issueRefreshToken(user, { context, replaces: decoded.jti });
+
     return { accessToken, refreshToken: newRefreshToken };
+  }
+
+  /** Ends one session — the device that presented this token, and no other. */
+  async logout(refreshToken) {
+    if (!refreshToken) return;
+    try {
+      const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
+      if (decoded.jti) await AuthService.revokeRefreshTokens({ jti: decoded.jti, reason: 'LOGOUT' });
+    } catch {
+      // An expired or malformed token needs no revoking, and logout must
+      // succeed regardless — a user signing out should never see an error.
+    }
   }
 
   async getMe(userId) {
@@ -259,6 +352,11 @@ class AuthService {
     user.resetPasswordToken = null;
     user.resetPasswordExpires = null;
     await user.save();
+
+    // Everything the old password could reach is now closed. Someone resetting
+    // a password has usually lost control of the account, and leaving working
+    // refresh tokens behind would hand the intruder another seven days.
+    await AuthService.revokeRefreshTokens({ userId: user.id, reason: 'PASSWORD_RESET' });
 
     return { message: 'Password has been reset successfully. You can now log in.' };
   }
