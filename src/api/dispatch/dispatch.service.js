@@ -5,6 +5,9 @@ const { DeliveryChallanLine } = require('./deliveryChallanLine.model');
 const { SalesOrder } = require('../sales/salesOrder.model');
 const { SalesOrderLine } = require('../sales/salesOrderLine.model');
 const { Product } = require('../products/product.model');
+const { Uom } = require('../products/uom.model');
+const { Organization } = require('../organization/organization.model');
+const { HsnCode } = require('../products/hsnCode.model');
 const { Party } = require('../parties/party.model');
 const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
@@ -49,17 +52,43 @@ class DispatchService {
       offset,
       include: [
         { model: SalesOrder, as: 'salesOrder', include: [{ model: Party, as: 'customer' }] },
-        { model: DeliveryChallanLine, as: 'lines', include: [{ model: Product, as: 'product' }] },
+        {
+          model: DeliveryChallanLine, as: 'lines',
+          // The unit travels with the product: a challan reading "30" beside a
+          // pipe means something different from "30" beside cement, and the
+          // driver has only this piece of paper.
+          include: [{ model: Product, as: 'product', include: [{ model: Uom, as: 'uom' }] }],
+        },
       ],
       order: [['dispatchDate', 'DESC']],
     });
   }
 
+  /**
+   * Loaded wide enough to print a GST delivery challan without a second trip:
+   * the dispatching factory and its organisation for the letterhead and GSTIN,
+   * the customer for the consignee block and place of supply, and per line the
+   * unit, the HSN (for the tax rate) and the sales-order line (for the rate).
+   *
+   * Whether any of the money is actually rendered is decided at print time by
+   * the caller's VIEW_RATES grant — see challanPdf.service.js. It is loaded
+   * either way because the same method serves the on-screen detail view.
+   */
   static async getChallan(id) {
     const challan = await DeliveryChallan.findByPk(id, {
       include: [
         { model: SalesOrder, as: 'salesOrder', include: [{ model: Party, as: 'customer' }] },
-        { model: DeliveryChallanLine, as: 'lines', include: [{ model: Product, as: 'product' }] },
+        { model: Factory, as: 'factory', include: [{ model: Organization, as: 'organization' }] },
+        {
+          model: DeliveryChallanLine, as: 'lines',
+          include: [
+            {
+              model: Product, as: 'product',
+              include: [{ model: Uom, as: 'uom' }, { model: HsnCode, as: 'hsnCode' }],
+            },
+            { model: SalesOrderLine, as: 'salesOrderLine' },
+          ],
+        },
       ],
     });
     if (!challan) throw new NotFoundError('Delivery challan not found');

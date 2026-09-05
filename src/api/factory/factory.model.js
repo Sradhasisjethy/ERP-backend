@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { BaseAuditedModel } = require('../../core/AuditedModel');
+const { Organization } = require('../organization/organization.model');
 
 /**
  * A physical production facility (BR-29 access is scoped per factory; BR-04
@@ -102,5 +103,9 @@ Factory.initAudited(
     tableName: 'factories',
   }
 );
+
+// The organisation a plant belongs to — its name and GSTIN head every printed
+// document.
+Factory.belongsTo(Organization, { as: 'organization', foreignKey: 'organizationId' });
 
 module.exports = { Factory };
