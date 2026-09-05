@@ -3,6 +3,7 @@ const { scopeListToFactories, assertCanSeeRecord } = require('../../core/salesSc
 const { InvoicingService } = require('./invoicing.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
+const { renderInvoicePdf } = require('./invoicePdf.service');
 
 const listInvoices = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, customerPartyId, status, search } = req.query;
@@ -15,6 +16,24 @@ const getInvoice = asyncHandler(async (req, res) => {
   const data = await InvoicingService.getInvoice(req.params.id);
   await assertCanSeeRecord(req, data, 'Sales invoice not found');
   sendSuccess(res, maskRateFields(data, req), 'Sales invoice retrieved successfully');
+});
+
+/**
+ * The statutory document. Unlike the delivery challan there is no rate-free
+ * variant to gate on VIEW_RATES — an invoice without money is not an invoice —
+ * so the only access check is the same record-visibility one the detail view
+ * uses.
+ */
+const printInvoice = asyncHandler(async (req, res) => {
+  const invoice = await InvoicingService.getInvoice(req.params.id);
+  await assertCanSeeRecord(req, invoice, 'Sales invoice not found');
+
+  const doc = renderInvoicePdf(invoice);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber.replace(/\//g, '-')}.pdf"`);
+  doc.pipe(res);
+  doc.end();
 });
 
 const createInvoice = asyncHandler(async (req, res) => {
@@ -32,4 +51,4 @@ const cancelInvoice = asyncHandler(async (req, res) => {
   sendSuccess(res, data, 'Sales invoice cancelled successfully');
 });
 
-module.exports = { listInvoices, getInvoice, createInvoice, cancelInvoice };
+module.exports = { listInvoices, getInvoice, createInvoice, cancelInvoice, printInvoice };

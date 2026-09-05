@@ -9,6 +9,8 @@ const { SalesOrder } = require('../sales/salesOrder.model');
 const { SalesOrderLine } = require('../sales/salesOrderLine.model');
 const { Product } = require('../products/product.model');
 const { HsnCode } = require('../products/hsnCode.model');
+const { Uom } = require('../products/uom.model');
+const { Organization } = require('../organization/organization.model');
 const { Party } = require('../parties/party.model');
 const { PartyAddress } = require('../parties/partyAddress.model');
 const { determineTax, splitTax } = require('./taxDetermination');
@@ -50,11 +52,23 @@ class InvoicingService {
     });
   }
 
+  /**
+   * Loaded wide enough to print the tax invoice without a second trip: the
+   * issuing factory and its organisation for the letterhead and supplier GSTIN,
+   * and per line the unit the quantity is expressed in. The tax figures and the
+   * HSN are already snapshotted on the invoice rows themselves.
+   *
+   * The same method serves the on-screen detail view, so it loads either way.
+   */
   static async getInvoice(id) {
     const invoice = await SalesInvoice.findByPk(id, {
       include: [
         { model: Party, as: 'customer' },
-        { model: SalesInvoiceLine, as: 'lines', include: [{ model: Product, as: 'product' }] },
+        { model: Factory, as: 'factory', include: [{ model: Organization, as: 'organization' }] },
+        {
+          model: SalesInvoiceLine, as: 'lines',
+          include: [{ model: Product, as: 'product', include: [{ model: Uom, as: 'uom' }] }],
+        },
         { model: SalesInvoiceChallan, as: 'challanLinks', include: [{ model: DeliveryChallan, as: 'deliveryChallan' }] },
       ],
     });
