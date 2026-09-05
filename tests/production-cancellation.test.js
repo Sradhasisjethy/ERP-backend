@@ -126,6 +126,28 @@ describe('PRD-02 — the mix design in force on a date is resolvable over the AP
     expect(res.body.data.lines).toHaveLength(2);
   });
 
+  /**
+   * The casting screen lists a row per material and asks the operator to
+   * confirm each quantity. Resolving without the materials themselves gave it
+   * rows with no name on them — someone signing off a number against a blank.
+   */
+  it('names the material on every line, with its unit', async () => {
+    const res = await request(app)
+      .get(`/api/v1/mix-designs/resolve?productId=${slab.id}&onDate=2026-08-20`)
+      .set('Cookie', adminCookie);
+
+    expect(res.status).toBe(200);
+    for (const line of res.body.data.lines) {
+      expect(line.rawMaterial).toBeTruthy();
+      expect(line.rawMaterial.name).toEqual(expect.any(String));
+      expect(line.rawMaterial.name.length).toBeGreaterThan(0);
+      // The unit matters as much as the number: "380" of cement is meaningless
+      // without knowing whether that is kilograms or bags.
+      expect(line.uom).toBeTruthy();
+      expect(line.uom.code).toEqual(expect.any(String));
+    }
+  });
+
   it('agrees with what production actually consumes on that date', async () => {
     await stockIn(cement.id, 100);
     const res = await request(app)

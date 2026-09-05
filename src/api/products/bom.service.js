@@ -12,7 +12,15 @@ const SORTABLE = ['name', 'version', 'status', 'effectiveFrom', 'createdAt'];
 
 const withLines = {
   include: [
-    { model: MixDesignLine, as: 'lines', include: [{ model: Product, as: 'rawMaterial' }, { model: Uom, as: 'uom' }] },
+    {
+      model: MixDesignLine, as: 'lines',
+      include: [
+        // The material's own unit is nested because explode() converts into it
+        // and callers need to label the result with it.
+        { model: Product, as: 'rawMaterial', include: [{ model: Uom, as: 'uom' }] },
+        { model: Uom, as: 'uom' },
+      ],
+    },
     { model: Product, as: 'product' },
   ],
 };
@@ -26,8 +34,8 @@ const withLines = {
  * itself with April's recipe even after May's recipe is activated.
  */
 class BomService {
-  static async get(id) {
-    const bom = await MixDesign.findByPk(id, withLines);
+  static async get(id, transaction) {
+    const bom = await MixDesign.findByPk(id, { ...withLines, transaction });
     if (!bom) throw new NotFoundError('Mix design not found');
     return bom;
   }
@@ -156,7 +164,18 @@ class BomService {
           { [Op.or]: [{ effectiveFrom: { [Op.lte]: date } }, { effectiveFrom: null }] },
         ],
       },
-      include: [{ model: MixDesignLine, as: 'lines' }],
+      // The material and its unit come with the line. Without them the
+      // production entry screen renders a row per material with no name on it —
+      // an operator is asked to confirm a quantity of something unnamed.
+      include: [
+        {
+          model: MixDesignLine, as: 'lines',
+          include: [
+            { model: Product, as: 'rawMaterial', attributes: ['id', 'name', 'code'] },
+            { model: Uom, as: 'uom', attributes: ['id', 'name', 'code'] },
+          ],
+        },
+      ],
       order: [
         // NULLS LAST so a dated version always beats an undated legacy one.
         [sequelize.literal('"MixDesign"."effectiveFrom" DESC NULLS LAST')],
@@ -354,8 +373,8 @@ class BomService {
    * the BOM line is expressed in a different one — a line written as "2 Bags of
    * cement" must consume 100 Kg if cement is stocked in Kg.
    */
-  static async explode(mixDesignId, outputQty) {
-    const bom = await this.get(mixDesignId);
+  static async explode(mixDesignId, outputQty, transaction) {
+    const bom = await this.get(mixDesignId, transaction);
     const perOutput = Number(outputQty) / Number(bom.outputQuantity || 1);
 
     const requirements = [];
@@ -367,8 +386,20 @@ class BomService {
       let quantity = withWastage;
       let converted = false;
       if (stockUomId && line.uomId && stockUomId !== line.uomId) {
-        quantity = await UomService.convert(withWastage, line.uomId, stockUomId);
-        converted = true;
+        try {
+          quantity = await UomService.convert(withWastage, line.uomId, stockUomId);
+          converted = true;
+        } catch (error) {
+          // Name the material and both units. Unqualified, this surfaces on the
+          // casting screen as "No conversion is defined between that unit and
+          // that unit" — true, but it does not say which of a dozen materials
+          // is at fault or what to go and add.
+          throw new ValidationError(
+            `${line.rawMaterial?.name || 'A material'} is measured in ${line.rawMaterial?.uom?.code || 'its own unit'} ` +
+              `but this recipe asks for ${line.uom?.code || 'another unit'}, and no conversion between them exists. ` +
+              `Add one under Masters → Products → UoM Conversions, or write the recipe line in ${line.rawMaterial?.uom?.code || 'the stocking unit'}.`
+          );
+        }
       }
 
       requirements.push({
@@ -378,6 +409,11 @@ class BomService {
         wastagePercent: Number(line.wastagePercent || 0),
         quantity: Number(quantity.toFixed(4)),
         uomId: stockUomId || line.uomId,
+        // The code as well as the id. `quantity` is in the material's stocking
+        // unit, so a caller showing it beside the BOM's unit would label 7.75
+        // CUM as "KG" — which is how the screen misled in the first place.
+        uomCode: converted ? line.rawMaterial?.uom?.code || null : line.uom?.code || null,
+        bomUomCode: line.uom?.code || null,
         convertedFromUomId: converted ? line.uomId : null,
         isOptional: !!line.isOptional,
       });

@@ -186,6 +186,19 @@ class ProductionService {
       // which is what keeps historical entries explainable (AC-2.1).
       const mixDesign = await BomService.resolveForDate(productId, productionDate, transaction);
 
+      // What this run actually consumes, in the units the materials are stocked
+      // in. BomService.explode applies the wastage allowance and converts each
+      // BOM unit into the material's own — a line written as "380 KG" against
+      // aggregate stocked in CUM must consume 0.2584 CUM per unit, not 380.
+      //
+      // Production used to recompute this itself as `quantityPerUnit * goodQty`,
+      // which did neither. That compared kilograms against cubic metres when
+      // checking availability — blocking runs there was ample material for —
+      // and, where the units happened to agree, silently under-consumed by
+      // exactly the wastage percentage the recipe declared.
+      const { requirements } = await BomService.explode(mixDesign.id, goodQty, transaction);
+      const requiredByProductId = new Map(requirements.map((r) => [r.rawMaterialProductId, Number(r.quantity)]));
+
       const factory = await Factory.findByPk(factoryId, { transaction });
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('PRODUCTION_ENTRY', {
@@ -262,7 +275,7 @@ class ProductionService {
           if (override && override.overrideLotId) continue;
           const requiredQty = override
             ? Number(override.actualQty)
-            : Number(bomLine.quantityPerUnit) * Number(goodQty);
+            : requiredByProductId.get(bomLine.rawMaterialProductId) || 0;
           if (requiredQty <= 0) continue;
 
           const available = await StockLedgerService.getStockBalance(
@@ -283,7 +296,7 @@ class ProductionService {
       }
 
       for (const bomLine of mixDesign.lines) {
-        const mixDesignQty = Number(bomLine.quantityPerUnit) * Number(goodQty);
+        const mixDesignQty = requiredByProductId.get(bomLine.rawMaterialProductId) || 0;
         const override = materialLineByProductId.get(bomLine.rawMaterialProductId);
         const actualQty = override ? Number(override.actualQty) : mixDesignQty;
 

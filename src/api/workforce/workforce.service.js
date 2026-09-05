@@ -59,7 +59,8 @@ class WorkforceService {
 
       const issue = await ContractorMaterialIssue.create({ factoryId, issueNumber: documentNumber, contractorPartyId, issueDate }, { transaction });
 
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         // Leaves normal factory stock...
         await StockLedgerService.consumeFifo({
           factoryId, productId: line.productId, quantity: line.quantity, movementType: 'CONTRACTOR_ISSUE_OUT',
@@ -69,8 +70,9 @@ class WorkforceService {
         });
 
         // ...and lands in a WITH_CONTRACTOR lot — still BPL stock (BR-23), just held elsewhere.
+        const seq = String(i + 1).padStart(2, '0');
         const newLot = await StockLedgerService.createLot({
-          factoryId, productId: line.productId, lotNumber: `${documentNumber}-${line.productId.slice(0, 8)}`,
+          factoryId, productId: line.productId, lotNumber: `${documentNumber}-${seq}`,
           originType: 'CONTRACTOR_ISSUE', originId: issue.id, originDate: issueDate,
           statusOverride: 'WITH_CONTRACTOR', heldByPartyId: contractorPartyId, quantity: line.quantity, transaction,
         });
@@ -136,10 +138,19 @@ class WorkforceService {
       });
 
       // 2) Consumes material out of the contractor's WITH_CONTRACTOR holding.
-      for (const bomLine of mixDesign.lines) {
-        const requiredQty = Number(bomLine.quantityPerUnit) * Number(quantity);
+      //
+      // Through explode(), for the same reason own-production does: it applies
+      // the wastage allowance and converts each BOM unit into the one the
+      // material is stocked in. Multiplying quantityPerUnit directly would
+      // deduct kilograms from a balance held in cubic metres.
+      const { requirements } = await BomService.explode(mixDesign.id, quantity, transaction);
+
+      for (const requirement of requirements) {
+        const requiredQty = Number(requirement.quantity);
+        if (requiredQty <= 0) continue;
+
         await StockLedgerService.consumeFifo({
-          factoryId, productId: bomLine.rawMaterialProductId, quantity: requiredQty, movementType: 'PRODUCTION_OUT',
+          factoryId, productId: requirement.rawMaterialProductId, quantity: requiredQty, movementType: 'PRODUCTION_OUT',
           referenceType: 'ContractorProductionEntry', referenceId: entryId,
           sourceStatus: 'WITH_CONTRACTOR', heldByPartyId: contractorPartyId, transaction,
         });
