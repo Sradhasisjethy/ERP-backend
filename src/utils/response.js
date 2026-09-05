@@ -51,6 +51,11 @@ const sendError = (res, error) => {
     return res.status(error.statusCode).json({
       success: false,
       message: error.message,
+      // A few refusals need to be acted on rather than just shown — removing a
+      // mandatory bundle component, for one, where the client offers a
+      // request-approval path instead of a dead end. Only errors that set a
+      // code carry this; every existing response is unchanged.
+      ...(error.code ? { code: error.code } : {}),
     });
   }
 

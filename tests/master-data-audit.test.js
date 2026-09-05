@@ -466,7 +466,8 @@ describe('Audit trail covers every master', () => {
   });
 
   it('attributes an organization change to the acting user', async () => {
-    const org = await request(app).post('/api/v1/organizations').set('Cookie', A.cookie).send({ name: 'Audited Org', code: 'AUD-ORG' });
+    const org = await request(app).post('/api/v1/organizations').set('Cookie', A.cookie)
+      .send({ name: 'Audited Org', code: 'AUD-ORG', gstin: '21BBBBB0000B1Z5' });
     expect(org.status).toBe(201);
     const entry = await AuditLog.findOne({ where: { entityType: 'Organization', entityId: org.body.data.id, action: 'CREATE' } });
     expect(entry).not.toBeNull();

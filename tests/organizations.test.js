@@ -54,7 +54,9 @@ describe('Organization CRUD (tenant-scoped model create/update/delete)', () => {
     const res = await request(app)
       .post('/api/v1/organizations')
       .set('Cookie', adminCookie)
-      .send({ name: 'Test Org', code: 'TO' });
+      // GSTIN is required on create: an organization that cannot raise a tax
+      // invoice is not a usable organization.
+      .send({ name: 'Test Org', code: 'TO', gstin: '21AAAAA0000A1Z5' });
 
     expect(res.status).toBe(201);
     expect(res.body.data.tenantId).toBeTruthy();

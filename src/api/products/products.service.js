@@ -223,13 +223,16 @@ class ProductsService {
   }
 
   // --- Product ---
-  static async listProducts(page, limit, { search, status, categoryId, productType, sortBy, sortDir } = {}) {
+  static async listProducts(page, limit, { search, status, categoryId, productType, isAccessory, sortBy, sortDir } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
     if (search) where[Op.or] = [{ name: { [Op.iLike]: `%${search}%` } }, { code: { [Op.iLike]: `%${search}%` } }];
     if (status) where.status = status;
     if (categoryId) where.categoryId = categoryId;
     if (productType) where.productType = productType;
+    // Explicit undefined check: `false` is a meaningful filter (everything that
+    // is NOT an accessory), and a truthiness test would silently drop it.
+    if (isAccessory !== undefined) where.isAccessory = isAccessory;
 
     return Product.findAndCountAll({
       where,

@@ -99,7 +99,26 @@ class PricingService {
       });
     }
 
-    return item ? item.ratePaise : null;
+    if (item) return item.ratePaise;
+
+    // Last resort: the price on the product itself.
+    //
+    // `products.sellingPricePaise` is where someone naturally records what an
+    // item sells for, and a small catalogue may have no price lists at all.
+    // Returning null here meant an accessory with a perfectly good selling
+    // price was pulled onto an order at zero — free, silently, all the way to
+    // the invoice.
+    //
+    // Only for RETAIL. A CONTRACTOR_RATE is a piece rate paid for work done,
+    // not a selling price, and falling back to what the item sells for would
+    // overpay every labour bill.
+    if (priceType === 'RETAIL') {
+      const product = await Product.findByPk(productId, { attributes: ['sellingPricePaise'] });
+      const selling = Number(product?.sellingPricePaise || 0);
+      if (selling > 0) return selling;
+    }
+
+    return null;
   }
 
   // --- Individual price list items ---

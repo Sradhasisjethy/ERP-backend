@@ -72,6 +72,12 @@ const { PurchaseIndent, PurchaseIndentLine } = require('../api/purchasing/purcha
 const { Notification } = require('../api/notifications/notification.model');
 const { QualityInspection } = require('../api/quality/qualityInspection.model');
 const { Vehicle } = require('../api/vehicles/vehicle.model');
+const { BundleRule } = require('../api/bundles/bundleRule.model');
+const { BundleComponent } = require('../api/bundles/bundleComponent.model');
+const { OverrideReasonCode } = require('../api/bundles/overrideReasonCode.model');
+const { BundleComponentSuppression } = require('../api/bundles/bundleComponentSuppression.model');
+const { BundleOverrideAudit } = require('../api/bundles/bundleOverrideAudit.model');
+const { IdempotencyKey } = require('../api/idempotency/idempotencyKey.model');
 
 // Tenant associations
 Tenant.hasMany(Organization, { foreignKey: 'tenantId' });
@@ -276,4 +282,10 @@ module.exports = {
   EmployeeDocument,
   QualityInspection,
   Vehicle,
+  BundleRule,
+  BundleComponent,
+  OverrideReasonCode,
+  BundleComponentSuppression,
+  BundleOverrideAudit,
+  IdempotencyKey,
 };

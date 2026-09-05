@@ -66,17 +66,19 @@ const login = asyncHandler(async (req, res) => {
   sendSuccess(res, {
     user: result.user,
     accessToken: result.accessToken, // Optional, since it's in cookie, but standard practice to also return in body sometimes
+    refreshToken: result.refreshToken,
   });
 });
 
 const refresh = asyncHandler(async (req, res) => {
-  const refreshToken = req.cookies?.refreshToken;
+  const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
   const result = await authService.refresh(refreshToken);
 
-  setCookies(res, result.accessToken);
+  setCookies(res, result.accessToken, result.refreshToken);
 
   sendSuccess(res, {
     accessToken: result.accessToken,
+    refreshToken: result.refreshToken,
   });
 });
 

@@ -40,21 +40,18 @@ class AuthService {
       permissions.add(WebPermissions.TRANSFER_READ);
       permissions.add(WebPermissions.DISPATCH_READ);
       permissions.add(WebPermissions.INVOICE_READ);
-    } else if (role === SystemRoles.EMPLOYEE) {
-      // Standard operational read access for employees
-      permissions.add(WebPermissions.EMPLOYEE_READ);
-      permissions.add(WebPermissions.ORG_READ);
-      permissions.add(WebPermissions.PARTY_READ);
-      permissions.add(WebPermissions.PRODUCT_READ);
-      permissions.add(WebPermissions.INVENTORY_READ);
-      permissions.add(WebPermissions.SALES_READ);
-      permissions.add(WebPermissions.PURCHASE_READ);
-      permissions.add(WebPermissions.PRODUCTION_READ);
-      permissions.add(WebPermissions.QUALITY_READ);
-      permissions.add(WebPermissions.TRANSFER_READ);
-      permissions.add(WebPermissions.DISPATCH_READ);
-      permissions.add(WebPermissions.INVOICE_READ);
     }
+    // EMPLOYEE deliberately grants nothing on its own.
+    //
+    // It used to hand every employee blanket read access across sales,
+    // purchase, production, inventory, quality, dispatch and invoicing before
+    // any AdGroup was consulted. That made the seven plant roles in
+    // constants/defaultRoles.js decorative for reads — a Sales Executive could
+    // read the casting sheet, an accountant could read production, and a user
+    // in no group at all could list every employee. It also sat awkwardly with
+    // BR-07, which exists to keep commercial figures away from the shop floor.
+    //
+    // An employee now gets exactly what their groups give them.
 
     if (userId) {
       const memberships = await AdGroupMember.findAll({
@@ -84,7 +81,7 @@ class AuthService {
         permissions,
       },
       env.JWT_SECRET,
-      { expiresIn: '15m', algorithm: 'HS256' }
+      { expiresIn: env.JWT_ACCESS_EXPIRATION || '1h', algorithm: 'HS256' }
     );
   }
 
@@ -159,7 +156,7 @@ class AuthService {
       throw new UnauthorizedError('Invalid refresh token');
     }
 
-    const user = await User.findByPk(decoded.userId);
+    const user = await User.unscoped().findByPk(decoded.userId);
     if (!user) {
       throw new UnauthorizedError('User not found');
     }
@@ -169,7 +166,8 @@ class AuthService {
     AuthService.assertUsable(user);
 
     const accessToken = await this.generateAccessToken(user);
-    return { accessToken };
+    const newRefreshToken = this.generateRefreshToken(user.id);
+    return { accessToken, refreshToken: newRefreshToken };
   }
 
   async getMe(userId) {

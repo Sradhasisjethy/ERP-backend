@@ -1,6 +1,8 @@
 const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const { app } = require('../src/app');
+const { PricingService } = require('../src/api/pricing/pricing.service');
+const { runInTenantContext: withTenant } = require('./helpers/tenant');
 const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const { Tenant, User, Organization, AdGroup, AdGroupMember, AuditLog } = require('../src/models/index');
@@ -181,6 +183,43 @@ describe('Product / BOM masters (M03, BR-06)', () => {
     productId = product.body.data.id;
   });
 
+  /**
+   * The bundle screen offers a curated accessory list rather than the whole
+   * catalogue, which only works while this filter does. An accessory is an
+   * ordinary product otherwise — priced, taxed and stocked the same way — so
+   * the flag must not change anything except which list it appears in.
+   */
+  it('filters products by whether they are accessories', async () => {
+    const accessory = await request(app)
+      .post('/api/v1/products')
+      .set('Cookie', adminCookie)
+      .send({ name: 'Lifting Hook', code: 'ACC-HOOK', uomId, isAccessory: true });
+    expect(accessory.status).toBe(201);
+    expect(accessory.body.data.isAccessory).toBe(true);
+
+    const accessories = await request(app)
+      .get('/api/v1/products?isAccessory=true&limit=100')
+      .set('Cookie', adminCookie);
+    expect(accessories.status).toBe(200);
+    expect(accessories.body.data.rows.map((p) => p.code)).toEqual(['ACC-HOOK']);
+
+    // `false` has to filter rather than be read as the truthy string "false".
+    const ordinary = await request(app)
+      .get('/api/v1/products?isAccessory=false&limit=100')
+      .set('Cookie', adminCookie);
+    expect(ordinary.body.data.rows.map((p) => p.code)).toContain('FG-SLAB');
+    expect(ordinary.body.data.rows.map((p) => p.code)).not.toContain('ACC-HOOK');
+
+    // Unfiltered still returns everything.
+    const all = await request(app).get('/api/v1/products?limit=100').set('Cookie', adminCookie);
+    expect(all.body.data.rows.map((p) => p.code)).toEqual(expect.arrayContaining(['FG-SLAB', 'ACC-HOOK']));
+  });
+
+  it('defaults a product to not being an accessory', async () => {
+    const res = await request(app).get(`/api/v1/products/${productId}`).set('Cookie', adminCookie);
+    expect(res.body.data.isAccessory).toBe(false);
+  });
+
   it('masks standardCostPaise for a user without VIEW_RATES (BR-27)', async () => {
     const res = await request(app).get(`/api/v1/products/${productId}`).set('Cookie', limitedCookie);
     expect(res.status).toBe(200);
@@ -327,5 +366,39 @@ describe('Pricing (M05, BR-27)', () => {
     const asLimited = await request(app).get(`/api/v1/price-lists/${priceList.body.data.id}`).set('Cookie', limitedCookie);
     expect(asLimited.status).toBe(200);
     expect(asLimited.body.data.items[0].ratePaise).toBeNull();
+  });
+
+  /**
+   * Precedence matters because bundles price their accessories through this.
+   * An item with a selling price on the product but no price-list entry used to
+   * resolve to nothing and be pulled onto an order free of charge.
+   */
+  it('falls back to the product selling price when no price list covers it', async () => {
+    const uom = await request(app).post('/api/v1/uoms').set('Cookie', adminCookie).send({ name: 'Numbers3', code: 'NOS3' });
+
+    const listed = await request(app).post('/api/v1/products').set('Cookie', adminCookie)
+      .send({ name: 'Listed Item', code: 'FG-LISTED', uomId: uom.body.data.id, sellingPricePaise: 11111 });
+    const unlisted = await request(app).post('/api/v1/products').set('Cookie', adminCookie)
+      .send({ name: 'Unlisted Item', code: 'FG-UNLISTED', uomId: uom.body.data.id, sellingPricePaise: 30000 });
+    const priceless = await request(app).post('/api/v1/products').set('Cookie', adminCookie)
+      .send({ name: 'Priceless Item', code: 'FG-NOPRICE', uomId: uom.body.data.id });
+
+    await request(app).post('/api/v1/price-lists').set('Cookie', adminCookie).send({
+      name: 'Fallback Retail', priceType: 'RETAIL',
+      items: [{ productId: listed.body.data.id, ratePaise: 65000 }],
+    });
+
+    await withTenant(tenantId, async () => {
+      // A price list still wins over the product's own price.
+      expect(Number(await PricingService.resolveRate(listed.body.data.id, {}))).toBe(65000);
+      // No list entry, so the product's selling price is used rather than nothing.
+      expect(Number(await PricingService.resolveRate(unlisted.body.data.id, {}))).toBe(30000);
+      // Nothing anywhere stays null, so callers can still tell it apart from free.
+      expect(await PricingService.resolveRate(priceless.body.data.id, {})).toBeNull();
+      // A contractor piece rate must NOT inherit what the item sells for.
+      expect(
+        await PricingService.resolveRate(unlisted.body.data.id, { priceType: 'CONTRACTOR_RATE' })
+      ).toBeNull();
+    });
   });
 });

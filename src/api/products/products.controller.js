@@ -67,8 +67,8 @@ const deleteHsnCode = asyncHandler(async (req, res) => {
 
 // Product — standardCostPaise is masked per BR-27 for users without VIEW_RATES.
 const listProducts = asyncHandler(async (req, res) => {
-  const { page, limit, search, status, categoryId, productType, sortBy, sortDir } = req.query;
-  const data = await ProductsService.listProducts(Number(page), Number(limit), { search, status, categoryId, productType, sortBy, sortDir });
+  const { page, limit, search, status, categoryId, productType, isAccessory, sortBy, sortDir } = req.query;
+  const data = await ProductsService.listProducts(Number(page), Number(limit), { search, status, categoryId, productType, isAccessory, sortBy, sortDir });
   sendList(res, req, maskRateFields(data, req), 'Products retrieved successfully');
 });
 const getProduct = asyncHandler(async (req, res) => {

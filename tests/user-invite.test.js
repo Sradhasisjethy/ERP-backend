@@ -2,6 +2,7 @@ const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
+const { resetDatabase } = require('./helpers/db');
 const { Tenant, User } = require('../src/models/index');
 
 const PASSWORD = 'password123';
@@ -14,7 +15,13 @@ const extractCookie = (res, name) => {
 };
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  // Was `sequelize.sync({ force: true })`, which drops and recreates every
+  // table from the MODELS. That did two bad things at once: this file tested a
+  // schema production never gets (the model-built one is missing 49 indexes and
+  // 86 foreign keys — see helpers/db.js), and because the suite runs serially
+  // against one shared database, every file scheduled after this one inherited
+  // that weaker schema and failed in ways that moved between runs.
+  await resetDatabase();
 
   const tenant = await Tenant.create({ name: 'Invite Test Co', slug: 'invite-test-co', status: 'active' });
   const passwordHash = await bcrypt.hash(PASSWORD, 10);

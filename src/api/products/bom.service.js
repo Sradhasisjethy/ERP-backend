@@ -179,14 +179,14 @@ class BomService {
    * defining a product's first BOM, where there is nothing to supersede and
    * leaving it as a draft would just mean the product can't be produced.
    */
-  static async create({ productId, name, lines, effectiveFrom, outputQuantity = 1, bomType = 'MANUFACTURING', activate = false }) {
+  static async create({ productId, name, lines, effectiveFrom, outputQuantity = 1, bomType = 'MANUFACTURING', activate = false, laborCostPaise = 0, overheadCostPaise = 0 }) {
     if (!lines?.length) throw new ValidationError('A mix design requires at least one component line');
 
-    const created = await this.createDraft({ productId, name, lines, effectiveFrom, outputQuantity, bomType });
+    const created = await this.createDraft({ productId, name, lines, effectiveFrom, outputQuantity, bomType, laborCostPaise, overheadCostPaise });
     return activate ? this.activate(created.id, { effectiveFrom }) : created;
   }
 
-  static async createDraft({ productId, name, lines, effectiveFrom, outputQuantity = 1, bomType = 'MANUFACTURING' }) {
+  static async createDraft({ productId, name, lines, effectiveFrom, outputQuantity = 1, bomType = 'MANUFACTURING', laborCostPaise = 0, overheadCostPaise = 0 }) {
     return sequelize.transaction(async (transaction) => {
       if (!(await Product.count({ where: { id: productId }, transaction }))) {
         throw new ValidationError('The product this bill of materials is for does not exist');
@@ -201,7 +201,18 @@ class BomService {
       const version = latest ? Number(latest.version) + 1 : 1;
 
       const bom = await MixDesign.create(
-        { productId, name, version, effectiveFrom, outputQuantity, bomType, status: 'DRAFT', isActive: false },
+        {
+          productId,
+          name,
+          version,
+          effectiveFrom: effectiveFrom || new Date().toISOString().slice(0, 10),
+          outputQuantity,
+          bomType,
+          status: 'DRAFT',
+          isActive: false,
+          laborCostPaise: Number(laborCostPaise) || 0,
+          overheadCostPaise: Number(overheadCostPaise) || 0,
+        },
         { transaction }
       );
 
@@ -320,8 +331,11 @@ class BomService {
     return this.create({
       productId: source.productId,
       name: name || `${source.name} (copy)`,
+      effectiveFrom: source.effectiveFrom || new Date().toISOString().slice(0, 10),
       outputQuantity: source.outputQuantity,
       bomType: source.bomType,
+      laborCostPaise: source.laborCostPaise != null ? Number(source.laborCostPaise) : 0,
+      overheadCostPaise: source.overheadCostPaise != null ? Number(source.overheadCostPaise) : 0,
       lines: source.lines.map((l) => ({
         rawMaterialProductId: l.rawMaterialProductId,
         quantityPerUnit: l.quantityPerUnit,

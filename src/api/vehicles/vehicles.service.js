@@ -48,14 +48,26 @@ class VehicleService {
     }
   }
 
+  /**
+   * A lorry that is not ours belongs to somebody, and that somebody is who gets
+   * chased when it turns up late or damages a load. Recording the ownership as
+   * HIRED without naming the transporter leaves the challan pointing at nobody,
+   * which is the free-text mess this master exists to replace.
+   */
   static async assertTransporter(data) {
-    if (['HIRED', 'MARKET', 'ATTACHED'].includes(data.ownership)) {
-      if (data.transporterPartyId) {
-        const party = await Party.findByPk(data.transporterPartyId);
-        if (!party) throw new NotFoundError('Transporter not found');
-        if (party.status !== 'active') throw new ValidationError('That transporter is inactive');
-      }
+    // Only HIRED actually stores a transporter (see create/update below), so it
+    // is the only ownership that can meaningfully require one. MARKET and
+    // ATTACHED lorries are one-off or loosely tied and have nobody standing
+    // behind them on the master.
+    if (data.ownership !== 'HIRED') return;
+
+    if (!data.transporterPartyId) {
+      throw new ValidationError('A hired vehicle needs the transporter it belongs to');
     }
+
+    const party = await Party.findByPk(data.transporterPartyId);
+    if (!party) throw new NotFoundError('Transporter not found');
+    if (party.status !== 'active') throw new ValidationError('That transporter is inactive');
   }
 
   static async create(data) {
@@ -75,7 +87,11 @@ class VehicleService {
     if (data.registrationNumber) await this.assertRegistrationFree(data.registrationNumber, id);
 
     const ownership = data.ownership || vehicle.ownership;
-    await this.assertTransporter({ ...data, ownership });
+    // A partial edit that touches neither field must not read as "transporter
+    // removed" — fall back to the one already on record.
+    const transporterPartyId =
+      'transporterPartyId' in data ? data.transporterPartyId : vehicle.transporterPartyId;
+    await this.assertTransporter({ ...data, ownership, transporterPartyId });
 
     await vehicle.update({
       ...data,

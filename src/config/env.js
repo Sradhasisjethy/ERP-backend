@@ -14,6 +14,7 @@ const envSchema = z.object({
   DB_NAME_TEST: z.string().optional(),
   JWT_SECRET: z.string(),
   JWT_REFRESH_SECRET: z.string(),
+  JWT_ACCESS_EXPIRATION: z.string().default('1h'),
   ENCRYPTION_KEY: z.string().length(32, 'Encryption key must be 32 characters'),
   CORS_ORIGIN: z.string(),
   RATE_LIMIT_ENABLED: z.enum(['true', 'false']).default('false'),

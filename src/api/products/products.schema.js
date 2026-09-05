@@ -39,6 +39,7 @@ const productBody = z.object({
   // Does a produced lot of this product need a passing test before it can
   // be sold? Independent of curingDays, which is about age, not strength.
   qcRequired: z.boolean().optional(),
+  isAccessory: z.boolean().optional(),
   standardCostPaise: z.coerce.number().int().min(0).optional(),
   sellingPricePaise: z.coerce.number().int().min(0).optional(),
   openingStockQty: z.coerce.number().min(0).optional(),
@@ -101,6 +102,9 @@ const listQuerySchema = z.object({
   status: z.enum(['active', 'inactive']).optional(),
   categoryId: z.string().uuid().optional(),
   productType: z.enum(['FINISHED_GOOD', 'RAW_MATERIAL']).optional(),
+  // A string over the wire; coerced so ?isAccessory=false filters rather than
+  // being read as the truthy string "false".
+  isAccessory: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   productId: z.string().uuid().optional(),
   bomStatus: z.enum(['DRAFT', 'ACTIVE', 'SUPERSEDED']).optional(),
 });
@@ -127,6 +131,19 @@ const explodeQuerySchema = z.object({ outputQty: z.coerce.number().positive().de
 // Which mix design is in force for a product on a given date. Production
 // consumes the date-effective recipe, so any screen that lets a user pick a
 // production date has to ask the same question the posting code asks.
+/**
+ * Query for GET /products/:id/bundle-preview. Everything is optional except the
+ * quantity, because the sales screen calls this the moment a product is picked
+ * — before a customer or a delivery location has necessarily been chosen.
+ */
+const bundlePreviewQuerySchema = z.object({
+  qty: z.coerce.number().positive().default(1),
+  factoryId: z.string().uuid().optional(),
+  partyId: z.string().uuid().optional(),
+  priceType: z.string().trim().min(1).optional(),
+  onDate: z.string().trim().min(1).optional(),
+});
+
 const resolveMixDesignQuerySchema = z.object({
   productId: z.string().uuid(),
   onDate: z.string().trim().min(1).optional(),
@@ -135,6 +152,7 @@ const resolveMixDesignQuerySchema = z.object({
 module.exports = {
   createUomConversionSchema, updateUomConversionSchema, convertQuerySchema,
   cloneMixDesignSchema, activateMixDesignSchema, explodeQuerySchema, resolveMixDesignQuerySchema,
+  bundlePreviewQuerySchema,
   createUomSchema,
   updateUomSchema,
   createProductCategorySchema,
