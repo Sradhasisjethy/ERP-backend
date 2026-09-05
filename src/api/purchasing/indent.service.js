@@ -7,6 +7,8 @@ const { GoodsReceipt } = require('./goodsReceipt.model');
 const { GoodsReceiptLine } = require('./goodsReceiptLine.model');
 const { PurchaseInvoice } = require('./purchaseInvoice.model');
 const { Product } = require('../products/product.model');
+const { Uom } = require('../products/uom.model');
+const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { searchWhere } = require('../../utils/pagination');
@@ -19,7 +21,22 @@ const getCurrentFinancialYearId = async (transaction) => {
   return fy.id;
 };
 
-const withLines = { include: [{ model: PurchaseIndentLine, as: 'lines', include: [{ model: Product, as: 'product' }] }] };
+const withLines = {
+  include: [
+    { model: Factory, as: 'factory' },
+    {
+      model: PurchaseIndentLine,
+      as: 'lines',
+      include: [
+        {
+          model: Product,
+          as: 'product',
+          include: [{ model: Uom, as: 'uom' }],
+        },
+      ],
+    },
+  ],
+};
 
 class IndentService {
   static async list(page, limit, { status, search, baseWhere = {} } = {}) {

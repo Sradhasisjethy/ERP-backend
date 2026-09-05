@@ -55,8 +55,11 @@ PurchaseIndentLine.initAudited(
   }
 );
 
+const { Factory } = require('../factory/factory.model');
+
 PurchaseIndentLine.belongsTo(PurchaseIndent, { as: 'indent', foreignKey: 'purchaseIndentId' });
 PurchaseIndentLine.belongsTo(Product, { as: 'product', foreignKey: 'productId' });
 PurchaseIndent.hasMany(PurchaseIndentLine, { as: 'lines', foreignKey: 'purchaseIndentId' });
+PurchaseIndent.belongsTo(Factory, { as: 'factory', foreignKey: 'factoryId' });
 
 module.exports = { PurchaseIndent, PurchaseIndentLine };

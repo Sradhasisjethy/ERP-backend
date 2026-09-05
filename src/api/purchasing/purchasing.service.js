@@ -7,6 +7,7 @@ const { GoodsReceipt } = require('./goodsReceipt.model');
 const { GoodsReceiptLine } = require('./goodsReceiptLine.model');
 const { PurchaseInvoice } = require('./purchaseInvoice.model');
 const { Product } = require('../products/product.model');
+const { Uom } = require('../products/uom.model');
 const { Party } = require('../parties/party.model');
 const { assertUsableParty, assertUsableProducts } = require('../../core/masterGuards');
 const { FinancialYear } = require('../factory/financialYear.model');
@@ -61,7 +62,11 @@ class PurchasingService {
     const po = await PurchaseOrder.findByPk(id, {
       include: [
         { model: Party, as: 'vendor' },
-        { model: PurchaseOrderLine, as: 'lines', include: [{ model: Product, as: 'product' }] },
+        {
+          model: PurchaseOrderLine,
+          as: 'lines',
+          include: [{ model: Product, as: 'product', include: [{ model: Uom, as: 'uom' }] }],
+        },
       ],
     });
     if (!po) throw new NotFoundError('Purchase order not found');
@@ -256,7 +261,8 @@ class PurchasingService {
 
       const grn = await GoodsReceipt.create({ ...data, purchaseOrderId, grnNumber: documentNumber }, { transaction });
 
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         // QC-01: incoming inspection at the gate. Everything a supplier
         // delivered used to enter available stock, including material a
         // storekeeper would have quarantined — there was no way to say "40
@@ -280,7 +286,8 @@ class PurchasingService {
         // not mint an empty lot, and postEntry rightly refuses a zero movement.
         let lotId = null;
         if (acceptedQty > 0) {
-          const lotNumber = `${documentNumber}-${line.productId.slice(0, 8)}`;
+          const seq = String(i + 1).padStart(2, '0');
+          const lotNumber = `${documentNumber}-${seq}`;
           const lot = await StockLedgerService.createLot({
             factoryId: data.factoryId,
             productId: line.productId,

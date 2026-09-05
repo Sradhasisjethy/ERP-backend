@@ -63,9 +63,11 @@ class ReturnsService {
         { transaction }
       );
 
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const seq = String(i + 1).padStart(2, '0');
         const lot = await StockLedgerService.createLot({
-          factoryId, productId: line.productId, lotNumber: `${documentNumber}-${line.productId.slice(0, 8)}`,
+          factoryId, productId: line.productId, lotNumber: `${documentNumber}-${seq}`,
           originType: 'SALES_RETURN', originId: salesReturn.id, originDate: returnDate, quantity: line.quantity, transaction,
         });
         await StockLedgerService.postEntry({
