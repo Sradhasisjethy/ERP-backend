@@ -14,7 +14,16 @@ describe('resolveTestDatabase', () => {
   });
 
   it('honours an explicit override', () => {
-    expect(resolveTestDatabase({ DB_NAME: 'test-db', DB_NAME_TEST: 'erp_ci' })).toBe('erp_ci');
+    expect(resolveTestDatabase({ DB_NAME: 'test-db', DB_NAME_TEST: 'erp_ci_test' })).toBe('erp_ci_test');
+  });
+
+  it('refuses any name that does not end in _test', () => {
+    // The host carries a dozen unrelated databases; DB_NAME_TEST=hrms3 is a
+    // plausible typo that would drop someone else's schema.
+    expect(() => resolveTestDatabase({ DB_NAME: 'test-db', DB_NAME_TEST: 'hrms3' }))
+      .toThrow(/must end in "_test"/);
+    expect(() => resolveTestDatabase({ DB_NAME: 'test-db', DB_NAME_TEST: 'erp_ci' }))
+      .toThrow(/must end in "_test"/);
   });
 
   it('refuses an override that names the development database', () => {

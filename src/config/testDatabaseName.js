@@ -25,7 +25,25 @@ const resolveTestDatabase = (env = process.env) => {
     );
   }
 
-  return configured || fallback;
+  // The name must end in _test, and that is enforced rather than merely
+  // conventional. Refusing DB_NAME only stops the one database this repository
+  // happens to know about; the host carries a dozen unrelated ones
+  // (crusherUnit_*, fuzzy_fleet, hrms2-hrms6, next_*), and DB_NAME_TEST=hrms3
+  // is a plausible typo that would have dropped somebody else's schema. A
+  // suffix rule makes the destructive target impossible to name by accident,
+  // which no amount of care at the call sites can achieve.
+  const target = configured || fallback;
+  if (!target.endsWith('_test')) {
+    throw new Error(
+      `Refusing "${target}" as the test database: the name must end in "_test". ` +
+        'The suite drops the schema of whatever it connects to, so the target is ' +
+        'restricted to names that cannot be mistaken for a live database. Set ' +
+        'DB_NAME_TEST to something ending in _test, or unset it to use ' +
+        `"${fallback}".`
+    );
+  }
+
+  return target;
 };
 
 module.exports = { resolveTestDatabase };
