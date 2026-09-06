@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const { STATE_CODES, stateCodeFor } = require('./taxDetermination');
+const { formatDate } = require('../../utils/dateDisplay');
 
 /**
  * GST tax invoice, A4.
@@ -125,7 +126,7 @@ const buildRows = (invoice) =>
     totalPaise: Number(line.lineTotalPaise || 0),
   }));
 
-const renderInvoicePdf = (invoice) => {
+const renderInvoicePdf = (invoice, { display = {} } = {}) => {
   const doc = new PDFDocument({
     size: 'A4',
     margins: { top: A4.margin, bottom: A4.margin, left: A4.margin, right: A4.margin },
@@ -138,7 +139,7 @@ const renderInvoicePdf = (invoice) => {
 
   let y = A4.margin;
   y = drawLetterhead(doc, invoice, y);
-  y = drawParties(doc, invoice, y);
+  y = drawParties(doc, invoice, y, display);
   y = drawTable(doc, invoice, rows, y, isInterState);
   drawFooter(doc, invoice, y, isInterState);
 
@@ -194,7 +195,7 @@ function drawLetterhead(doc, invoice, y) {
   return y + titleHeight;
 }
 
-function drawParties(doc, invoice, y) {
+function drawParties(doc, invoice, y, display = {}) {
   const L = A4.left;
   const R = A4.right;
   const mid = L + (R - L) / 2;
@@ -248,7 +249,7 @@ function drawParties(doc, invoice, y) {
 
   let rightY = y + 14;
   rightY = meta('Invoice No.', invoice.invoiceNumber, rightY);
-  rightY = meta('Invoice Date', invoice.invoiceDate, rightY);
+  rightY = meta('Invoice Date', formatDate(invoice.invoiceDate, display), rightY);
   rightY = meta('Challan Ref.', challanNumbers, rightY);
   rightY = meta('Reverse Charge', 'No', rightY);
   if (invoice.status === 'CANCELLED') {

@@ -107,6 +107,19 @@ describe('delivery challan PDF layout', () => {
     }
   });
 
+  it('prints the date in the tenant format from Settings > General', () => {
+    const { strings, restore } = recordBoxes();
+    try {
+      const challan = challanFor('Odisha');
+      challan.dispatchDate = '2026-09-04';
+      renderChallanPdf(challan, { format: 'a4', showRates: true, display: { dateFormat: 'DD/MM/YYYY' } }).end();
+      expect(strings).toContain('04/09/2026');
+      expect(strings).not.toContain('2026-09-04');
+    } finally {
+      restore();
+    }
+  });
+
   it('spans the full frame width rather than leaving the table short', () => {
     const { boxes, restore } = recordBoxes();
     try {

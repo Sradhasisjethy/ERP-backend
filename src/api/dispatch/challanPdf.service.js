@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const { determineTax, stateCodeFor } = require('../invoicing/taxDetermination');
+const { formatDate } = require('../../utils/dateDisplay');
 
 /**
  * Delivery challan, A4 and 80mm thermal.
@@ -117,14 +118,19 @@ const buildRows = (challan) => {
   };
 };
 
-const renderChallanPdf = (challan, { format = 'a4', showRates = false } = {}) =>
+/**
+ * `display` carries the tenant's Settings > General preferences. Dates were
+ * previously printed as the raw column value, so a tenant configured for
+ * DD/MM/YYYY still got "2026-09-04" on the document.
+ */
+const renderChallanPdf = (challan, { format = 'a4', showRates = false, display = {} } = {}) =>
   format === 'thermal'
-    ? renderThermal(challan, showRates)
-    : renderA4(challan, showRates);
+    ? renderThermal(challan, showRates, display)
+    : renderA4(challan, showRates, display);
 
 // ---------------------------------------------------------------- A4 --------
 
-function renderA4(challan, showRates) {
+function renderA4(challan, showRates, display = {}) {
   const doc = new PDFDocument({
     size: 'A4',
     margins: { top: A4.margin, bottom: A4.margin, left: A4.margin, right: A4.margin },
@@ -138,7 +144,7 @@ function renderA4(challan, showRates) {
 
   let y = A4.margin;
   y = drawLetterhead(doc, challan, y);
-  y = drawParties(doc, challan, y, isInterState);
+  y = drawParties(doc, challan, y, isInterState, display);
   y = drawTable(doc, rows, totals, y, showRates, isInterState);
   drawFooter(doc, totals, y, showRates, isInterState, challan);
 
@@ -189,7 +195,7 @@ function drawLetterhead(doc, challan, y) {
   return y + titleHeight;
 }
 
-function drawParties(doc, challan, y, isInterState) {
+function drawParties(doc, challan, y, isInterState, display = {}) {
   const L = A4.left;
   const R = A4.right;
   const mid = L + (R - L) / 2;
@@ -235,7 +241,7 @@ function drawParties(doc, challan, y, isInterState) {
 
   let rightY = y + 14;
   rightY = meta('Challan No.', challan.challanNumber, rightY);
-  rightY = meta('Challan Date', challan.dispatchDate, rightY);
+  rightY = meta('Challan Date', formatDate(challan.dispatchDate, display), rightY);
   rightY = meta('Order Ref.', challan.salesOrder?.orderNumber, rightY);
   rightY = meta('Vehicle Number', challan.vehicleNumber, rightY);
   rightY = meta('Driver', challan.driverName, rightY);
@@ -467,7 +473,7 @@ function drawFooter(doc, totals, y, showRates, isInterState, challan) {
  * item takes its own lines. Cramming columns into 200pt is what made the
  * original wrap one character per line.
  */
-function renderThermal(challan, showRates) {
+function renderThermal(challan, showRates, display = {}) {
   const doc = new PDFDocument({
     size: THERMAL.size,
     margins: { top: THERMAL.margin, bottom: THERMAL.margin, left: THERMAL.margin, right: THERMAL.margin },
@@ -496,7 +502,7 @@ function renderThermal(challan, showRates) {
   rule();
 
   line(`Challan No: ${challan.challanNumber}`);
-  line(`Date: ${challan.dispatchDate}`);
+  line(`Date: ${formatDate(challan.dispatchDate, display)}`);
   line(`Vehicle: ${challan.vehicleNumber}`);
   if (challan.driverName) line(`Driver: ${challan.driverName}`);
   if (challan.salesOrder?.orderNumber) line(`Order Ref: ${challan.salesOrder.orderNumber}`);

@@ -2,6 +2,7 @@ const { asyncHandler } = require('../../core/asyncHandler');
 const { hasPermission } = require('../../middlewares/authorize');
 const { scopeListToFactories, assertCanSeeRecord } = require('../../core/salesScope');
 const { DispatchService } = require('./dispatch.service');
+const { SettingsService } = require('../settings/settings.service');
 const { renderChallanPdf } = require('./challanPdf.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 
@@ -43,6 +44,9 @@ const printChallan = asyncHandler(async (req, res) => {
   const doc = renderChallanPdf(challan, {
     format: req.query.format,
     showRates: hasPermission(req.user, 'VIEW_RATES'),
+    // Settings > General decides how the date reads. Defaults apply when the
+    // tenant has never opened that screen — a document must still print.
+    display: await SettingsService.getDisplayPreferences(),
   });
 
   res.setHeader('Content-Type', 'application/pdf');

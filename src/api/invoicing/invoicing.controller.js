@@ -4,6 +4,7 @@ const { InvoicingService } = require('./invoicing.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
 const { renderInvoicePdf } = require('./invoicePdf.service');
+const { SettingsService } = require('../settings/settings.service');
 
 const listInvoices = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, customerPartyId, status, search } = req.query;
@@ -28,7 +29,7 @@ const printInvoice = asyncHandler(async (req, res) => {
   const invoice = await InvoicingService.getInvoice(req.params.id);
   await assertCanSeeRecord(req, invoice, 'Sales invoice not found');
 
-  const doc = renderInvoicePdf(invoice);
+  const doc = renderInvoicePdf(invoice, { display: await SettingsService.getDisplayPreferences() });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber.replace(/\//g, '-')}.pdf"`);

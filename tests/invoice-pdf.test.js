@@ -98,10 +98,10 @@ const invoiceFor = ({ interState = false, status = 'POSTED', roundOffPaise = 0 }
 };
 
 describe('tax invoice PDF', () => {
-  const run = (invoice) => {
+  const run = (invoice, options) => {
     const r = record();
     try {
-      renderInvoicePdf(invoice).end();
+      renderInvoicePdf(invoice, options).end();
       return { boxes: r.boxes, strings: r.strings };
     } finally {
       r.restore();
@@ -172,6 +172,15 @@ describe('tax invoice PDF', () => {
     invoice.customer.state = 'Odisha';
     const { strings } = run(invoice);
     expect(strings).toContain('West Bengal (19)');
+  });
+
+  it('prints the date in the tenant format from Settings > General', () => {
+    const invoice = invoiceFor();
+    invoice.invoiceDate = '2026-09-06';
+    expect(run(invoice, { display: { dateFormat: 'DD/MM/YYYY' } }).strings).toContain('06/09/2026');
+    expect(run(invoice, { display: { dateFormat: 'MM/DD/YYYY' } }).strings).toContain('09/06/2026');
+    // Never the raw column value, which is what it printed before.
+    expect(run(invoice, { display: { dateFormat: 'DD/MM/YYYY' } }).strings).not.toContain('2026-09-06');
   });
 
   it('marks a cancelled invoice on its face', () => {
