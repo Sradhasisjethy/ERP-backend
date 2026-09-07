@@ -37,6 +37,17 @@ const balanceQuerySchema = z.object({
   productId: z.string().uuid(),
 });
 
+const listByMaterialQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(20),
+  factoryId: z.string().uuid().optional(),
+  category: z.enum(['RAW_MATERIAL', 'FINISHED_GOOD', 'ACCESSORY']).optional(),
+  search: z.string().trim().min(1).optional(),
+  // Off by default: a material that has run out is exactly what someone
+  // reordering is looking for, so zero rows are an answer, not noise.
+  hideZero: z.coerce.boolean().default(false),
+});
+
 const listAdjustmentsQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(10),
@@ -71,4 +82,5 @@ const releaseEarlySchema = z.object({ body: z.object({ reason: z.string().min(3)
 module.exports = {
   listReservationsQuerySchema,
   releaseEarlySchema, listLotsQuerySchema, listLedgerQuerySchema, balanceQuerySchema,
+  listByMaterialQuerySchema,
   listAdjustmentsQuerySchema, createAdjustmentSchema };
