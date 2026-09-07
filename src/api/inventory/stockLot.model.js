@@ -64,7 +64,12 @@ StockLot.initAudited(
       defaultValue: 0,
     },
     status: {
-      type: DataTypes.ENUM('CURING', 'AVAILABLE', 'WITH_CONTRACTOR', 'IN_TRANSIT', 'CONSUMED'),
+      // QC-01 adds two resting places to the lot lifecycle. They were added to
+      // the database type by 20260901000000-quality-control.js but never here,
+      // so the model and the schema disagreed about what a lot status can be.
+      type: DataTypes.ENUM(
+        'CURING', 'AVAILABLE', 'WITH_CONTRACTOR', 'IN_TRANSIT', 'CONSUMED', 'QC_HOLD', 'QC_FAILED'
+      ),
       allowNull: false,
       defaultValue: 'AVAILABLE',
     },

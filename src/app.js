@@ -3,6 +3,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
+const path = require('path');
 const { env } = require('./config/env');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { apiLimiter } = require('./middlewares/rateLimiter');
@@ -20,12 +21,15 @@ const { documentSeriesRouter } = require('./api/documentSeries/documentSeries.ro
 const { auditLogRouter } = require('./api/audit/auditLog.router');
 const { productsRouter } = require('./api/products/products.router');
 const { partiesRouter } = require('./api/parties/parties.router');
+const { vehiclesRouter } = require('./api/vehicles/vehicles.router');
 const { pricingRouter } = require('./api/pricing/pricing.router');
 const { inventoryRouter } = require('./api/inventory/inventory.router');
 const { purchasingRouter } = require('./api/purchasing/purchasing.router');
 const { transferRouter } = require('./api/transfer/transfer.router');
 const { salesRouter } = require('./api/sales/sales.router');
+const { bundlesRouter } = require('./api/bundles/bundles.router');
 const { productionRouter } = require('./api/production/production.router');
+const { qualityRouter } = require('./api/quality/quality.router');
 const { dispatchRouter } = require('./api/dispatch/dispatch.router');
 const { ledgerRouter } = require('./api/ledger/ledger.router');
 const { invoicingRouter } = require('./api/invoicing/invoicing.router');
@@ -44,9 +48,18 @@ const app = express();
 
 // Security Middlewares
 app.use(helmet());
+const allowedOrigins = env.CORS_ORIGIN
+  ? env.CORS_ORIGIN.split(',').map((o) => o.trim())
+  : ['http://localhost:3000'];
+
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin) || env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
   })
 );
@@ -72,6 +85,9 @@ app.use(
 app.get('/health/live', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Serve local uploads
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 /**
  * Readiness: can this instance actually serve traffic?
@@ -113,12 +129,15 @@ app.use('/api/v1/document-series', documentSeriesRouter);
 app.use('/api/v1/audit-logs', auditLogRouter);
 app.use('/api/v1', productsRouter); // Mounts /uoms, /product-categories, /hsn-codes, /products, /mix-designs
 app.use('/api/v1/parties', partiesRouter);
+app.use('/api/v1/vehicles', vehiclesRouter);
 app.use('/api/v1/price-lists', pricingRouter);
 app.use('/api/v1/inventory', inventoryRouter);
 app.use('/api/v1/purchasing', purchasingRouter);
 app.use('/api/v1/transfers', transferRouter);
 app.use('/api/v1/sales', salesRouter);
+app.use('/api/v1/bundles', bundlesRouter);
 app.use('/api/v1/production', productionRouter);
+app.use('/api/v1/quality', qualityRouter);
 app.use('/api/v1/dispatch', dispatchRouter);
 app.use('/api/v1/ledger', ledgerRouter);
 app.use('/api/v1/invoices', invoicingRouter);

@@ -60,6 +60,8 @@ class PartiesService {
         { code: { [Op.iLike]: `%${search}%` } },
         { gstin: { [Op.iLike]: `%${search}%` } },
         { phone: { [Op.iLike]: `%${search}%` } },
+        { aadhaarNumber: { [Op.iLike]: `%${search}%` } },
+        { badgeNumber: { [Op.iLike]: `%${search}%` } },
       ];
     }
     if (status) where.status = status;
@@ -69,13 +71,21 @@ class PartiesService {
       where,
       limit,
       offset,
-      include: [{ model: LabourWageProfile, as: 'wageProfile', required: false }],
+      include: [
+        { model: LabourWageProfile, as: 'wageProfile', required: false },
+        { model: Party, as: 'contractor', attributes: ['id', 'name', 'code'], required: false },
+      ],
       order: toOrder(sortBy, sortDir, SORTABLE, [['name', 'ASC']]),
     });
   }
 
   static async getParty(id) {
-    const party = await Party.findByPk(id, { include: [{ model: LabourWageProfile, as: 'wageProfile', required: false }] });
+    const party = await Party.findByPk(id, {
+      include: [
+        { model: LabourWageProfile, as: 'wageProfile', required: false },
+        { model: Party, as: 'contractor', attributes: ['id', 'name', 'code'], required: false },
+      ],
+    });
     if (!party) throw new NotFoundError('Party not found');
     return party;
   }

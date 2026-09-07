@@ -155,7 +155,11 @@ describe('Product -> BOM -> Production -> raw material consumption', () => {
     expect(production.body.data.mixDesignId || production.body.data.entry?.mixDesignId).toBeTruthy();
     const consumptions = production.body.data.consumptions;
     expect(consumptions).toHaveLength(1);
-    expect(Number(consumptions[0].mixDesignQty)).toBe(100); // 2 per unit * 50
+    // 2 per unit x 50 = 100, plus the 5% wastage the BOM line declares = 105.
+    // This asserted 100 until production started honouring the allowance —
+    // consuming the bare recipe figure is what let stock drift low by exactly
+    // the declared wastage on every run.
+    expect(Number(consumptions[0].mixDesignQty)).toBe(105);
   });
 });
 

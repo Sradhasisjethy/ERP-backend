@@ -14,6 +14,37 @@ const salesOrderBody = z.object({
         productId: z.string().uuid(),
         orderedQty: z.coerce.number().positive(),
         ratePaise: z.coerce.number().int().min(0),
+        // Decisions about this line's accessories, made while the order is
+        // being typed rather than after it is saved. A salesperson on the phone
+        // needs to say "no gasket, and make it four hooks" there and then;
+        // making them save first and edit afterwards is how a wrong line ends
+        // up on a challan.
+        //
+        // One field for both kinds of decision because they are the same kind
+        // of thing — a departure from what the bundle says — and the server
+        // applies each through the same command the edit screen uses, so the
+        // audit trail cannot tell the two routes apart.
+        accessoryOverrides: z
+          .array(
+            z
+              .object({
+                componentProductId: z.string().uuid(),
+                exclude: z.boolean().optional(),
+                qty: z.coerce.number().positive().optional(),
+                reasonCode: z.string().trim().min(1).optional(),
+                reasonNote: z.string().trim().min(1).optional(),
+              })
+              // A removal without a reason is what makes the attach-rate report
+              // meaningless, so it is refused at the edge rather than defaulted.
+              .refine((o) => !o.exclude || !!o.reasonCode, {
+                message: 'Leaving an accessory off needs a reason code',
+                path: ['reasonCode'],
+              })
+              .refine((o) => o.exclude || o.qty !== undefined, {
+                message: 'An accessory override must either exclude it or set a quantity',
+              })
+          )
+          .optional(),
       })
     )
     .min(1),
@@ -45,4 +76,42 @@ const listQuerySchema = z.object({
   status: z.string().optional(),
 });
 
-module.exports = { createSalesOrderSchema, updateSalesOrderSchema, reasonSchema, atpQuerySchema, listQuerySchema };
+// ---- bundle commands (docs/specs/bundle-kitting.md §6) --------------------
+//
+// Wrapped in `{ body: ... }` because `validate()` with no explicit source
+// checks { body, query, params } as one object.
+
+const addLineSchema = z.object({
+  body: z.object({
+    productId: z.string().uuid(),
+    orderedQty: z.coerce.number().positive(),
+    // Omitted means "use the price list", which is the normal case; sending one
+    // is an explicit override.
+    ratePaise: z.coerce.number().int().nonnegative().optional(),
+  }),
+});
+
+const changeQuantitySchema = z.object({
+  body: z.object({ qty: z.coerce.number().positive() }),
+});
+
+const suppressSchema = z.object({
+  body: z.object({
+    reasonCode: z.string().trim().min(1, 'Choose a reason for removing this item'),
+    reasonNote: z.string().trim().min(1).optional(),
+  }),
+});
+
+const restoreSchema = z.object({
+  body: z.object({ componentProductId: z.string().uuid() }),
+});
+
+const addComponentSchema = z.object({
+  body: z.object({
+    productId: z.string().uuid(),
+    qty: z.coerce.number().positive().optional(),
+  }),
+});
+
+module.exports = { createSalesOrderSchema, updateSalesOrderSchema, reasonSchema, atpQuerySchema, listQuerySchema,
+  addLineSchema, changeQuantitySchema, suppressSchema, restoreSchema, addComponentSchema };

@@ -105,6 +105,7 @@ const PERMISSION_CATALOG = Object.freeze([
     resources: [
       { key: 'PARTY', label: 'Parties (Customers, Vendors, Contractors, Labour)', actions: CRUD },
       { key: 'PRODUCT', label: 'Products, BOM, UoM & Categories', actions: CRUD },
+      { key: 'VEHICLE', label: 'Vehicles', actions: CRUD },
       { key: 'PRICING', label: 'Price Lists', actions: CRUD },
     ],
   },
@@ -119,6 +120,11 @@ const PERMISSION_CATALOG = Object.freeze([
         grants: [
           { code: 'SALES_CREDIT_OVERRIDE', label: 'Override credit block', description: 'Turns a credit-limit block into a warning (BR-13).' },
           { code: 'VIEW_PO_ATTACHMENTS', label: 'View PO attachments', description: 'Customer purchase-order files (BR-28).' },
+          {
+            code: 'SALES_BUNDLE_OVERRIDE_MANDATORY',
+            label: 'Remove a mandatory bundle item',
+            description: 'Takes an accessory the product does not work without off an order. Every removal is recorded with its reason.',
+          },
         ],
       },
       { key: 'DISPATCH', label: 'Delivery Challans', actions: CRUD },
@@ -153,6 +159,11 @@ const PERMISSION_CATALOG = Object.freeze([
         ],
       },
       { key: 'WASTAGE', label: 'Wastage', actions: CRUD },
+      {
+        key: 'QUALITY',
+        label: 'Quality Control',
+        actions: CRUD,
+      },
     ],
   },
   {

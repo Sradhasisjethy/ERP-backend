@@ -22,6 +22,10 @@ Organization.initAudited(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    gstin: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
     description: {
       type: DataTypes.TEXT,
       allowNull: true,

@@ -97,7 +97,8 @@ class TransferService {
     if (!lines || !lines.length) throw new ValidationError('Receipt requires at least one line');
 
     return sequelize.transaction(async (transaction) => {
-      for (const receipt of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const receipt = lines[i];
         const line = transfer.lines.find((l) => l.id === receipt.lineId);
         if (!line) throw new NotFoundError(`Transfer line ${receipt.lineId} not found on this transfer`);
 
@@ -109,10 +110,11 @@ class TransferService {
           throw new ValidationError('Received quantity cannot exceed the quantity sent');
         }
 
+        const seq = String(i + 1).padStart(2, '0');
         const destinationLot = await StockLedgerService.createLot({
           factoryId: transfer.toFactoryId,
           productId: line.productId,
-          lotNumber: `${transfer.transferNumber}-${line.productId.slice(0, 8)}`,
+          lotNumber: `${transfer.transferNumber}-${seq}`,
           originType: 'TRANSFER_IN',
           originId: line.id,
           // Preserve the source lot's own origin date/curing clock (BR-02) —

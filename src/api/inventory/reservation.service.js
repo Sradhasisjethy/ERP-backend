@@ -56,9 +56,22 @@ class ReservationService {
       .filter((l) => l.status === 'AVAILABLE')
       .reduce((sum, l) => sum + Number(l.qtyAvailable), 0);
 
+    // QC-01: reported alongside curing for exactly the same reason — stock a
+    // salesperson can see on hand but cannot promise. Without these two lines
+    // held stock silently vanishes from the arithmetic, and "we have 200 but I
+    // can only sell 40" has no visible explanation on the screen.
+    const awaitingQc = lots
+      .filter((l) => l.status === 'QC_HOLD')
+      .reduce((sum, l) => sum + Number(l.qtyAvailable), 0);
+    const qcFailed = lots
+      .filter((l) => l.status === 'QC_FAILED')
+      .reduce((sum, l) => sum + Number(l.qtyAvailable), 0);
+
     return {
       onHand,
       curing,
+      awaitingQc,
+      qcFailed,
       withContractor,
       reserved,
       inTransit,
@@ -178,6 +191,42 @@ class ReservationService {
   }
 
   /** FR-M07-4: holds older than `days` that are still active. */
+  /**
+   * Every hold at a location, with what it is holding and for whom.
+   *
+   * The service has driven sales-order promising since it was written, but
+   * nothing ever exposed the holds themselves — so "why can I only sell 40 of
+   * the 200 we have?" had no screen to answer it. Reservations are per lot, so
+   * the lot and product come along for the ride.
+   */
+  static async listAll(page, limit, { productId, status, search, baseWhere = {} } = {}) {
+    const { Product } = require('../products/product.model');
+    const { searchWhere, toOrder } = require('../../utils/pagination');
+    const offset = (page - 1) * limit;
+
+    const where = { ...baseWhere };
+    // ACTIVE by default: a released or consumed hold is history, and showing it
+    // beside live holds makes the page read as though far more stock is tied up.
+    where.status = status || 'ACTIVE';
+    if (productId) where.productId = productId;
+
+    const include = [
+      { model: Product, as: 'product' },
+      { model: StockLot, as: 'lot' },
+    ];
+    if (search) {
+      include[1] = { ...include[1], where: searchWhere(search, ['lotNumber']), required: true };
+    }
+
+    return StockReservation.findAndCountAll({
+      where,
+      limit,
+      offset,
+      include,
+      order: toOrder(undefined, undefined, [], [['createdAt', 'DESC']]),
+    });
+  }
+
   static async listStale(days = 30) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);

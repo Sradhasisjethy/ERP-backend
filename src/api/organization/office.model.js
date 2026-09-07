@@ -43,6 +43,10 @@ Office.initAudited(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    pincode: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
     geofenceRadius: {
       type: DataTypes.INTEGER,
       defaultValue: 100,

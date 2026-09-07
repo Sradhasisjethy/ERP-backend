@@ -29,6 +29,23 @@ PriceList.initAudited(
       type: DataTypes.UUID,
       allowNull: true,
     },
+    customerTier: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    effectiveFrom: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    validUntil: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    rateBasis: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'TAX_EXCLUSIVE',
+    },
     isDefault: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,

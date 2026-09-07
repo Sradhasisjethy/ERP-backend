@@ -3,7 +3,9 @@ const { env } = require('../config/env');
 const { UnauthorizedError } = require('../core/AppError');
 
 const authenticate = (req, res, next) => {
-  const token = req.cookies.accessToken;
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = req.cookies?.accessToken || bearerToken;
 
   if (!token) {
     return next(new UnauthorizedError('Access token is missing'));

@@ -35,7 +35,10 @@ const createSalesOrder = asyncHandler(async (req, res) => {
   // Only a user with SALES_CREDIT_OVERRIDE can actually exercise the override
   // they requested — everyone else's flag is silently ignored, not honoured.
   const allowCreditOverride = !!req.body.allowCreditOverride && hasPermission(req.user, 'SALES_CREDIT_OVERRIDE');
-  const { order, creditWarning } = await SalesService.createSalesOrder({ ...req.body, allowCreditOverride });
+  // Leaving a mandatory accessory off at order entry is the same decision as
+  // removing one afterwards, and needs the same grant.
+  const canOverrideMandatory = hasPermission(req.user, 'SALES_BUNDLE_OVERRIDE_MANDATORY');
+  const { order, creditWarning } = await SalesService.createSalesOrder({ ...req.body, allowCreditOverride, canOverrideMandatory });
   sendSuccess(res, { ...order.toJSON(), creditWarning }, 'Sales order created successfully', 201);
 });
 
@@ -46,7 +49,8 @@ const guardOrder = async (req) =>
 const updateSalesOrder = asyncHandler(async (req, res) => {
   await guardOrder(req);
   const allowCreditOverride = !!req.body.allowCreditOverride && hasPermission(req.user, 'SALES_CREDIT_OVERRIDE');
-  const data = await SalesService.updateSalesOrder(req.params.id, { ...req.body, allowCreditOverride });
+  const canOverrideMandatory = hasPermission(req.user, 'SALES_BUNDLE_OVERRIDE_MANDATORY');
+  const data = await SalesService.updateSalesOrder(req.params.id, { ...req.body, allowCreditOverride, canOverrideMandatory });
   sendSuccess(res, maskRateFields(data, req), 'Sales order updated successfully');
 });
 

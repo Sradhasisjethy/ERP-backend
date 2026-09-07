@@ -46,6 +46,31 @@ const createFinancialYear = asyncHandler(async (req, res) => {
   sendSuccess(res, data, 'Financial year created successfully', 201);
 });
 
+const updateFinancialYear = asyncHandler(async (req, res) => {
+  const data = await FactoryService.updateFinancialYear(req.params.id, req.body);
+  sendSuccess(res, data, 'Financial year updated successfully');
+});
+
+const deleteFinancialYear = asyncHandler(async (req, res) => {
+  await FactoryService.deleteFinancialYear(req.params.id);
+  sendSuccess(res, null, 'Financial year deleted successfully');
+});
+
+const updateFinancialYearStatus = asyncHandler(async (req, res) => {
+  const data = await FactoryService.updateStatus(req.params.id, req.body.status);
+  sendSuccess(res, data, 'Financial year status updated successfully');
+});
+
+const getFinancialYearPeriods = asyncHandler(async (req, res) => {
+  const data = await FactoryService.getFinancialYearPeriods(req.params.id);
+  sendSuccess(res, data, 'Financial year periods retrieved successfully');
+});
+
+const getCloseChecklist = asyncHandler(async (req, res) => {
+  const data = await FactoryService.getCloseChecklist(req.params.id);
+  sendSuccess(res, data, 'Year-end close checklist retrieved successfully');
+});
+
 const setCurrentFinancialYear = asyncHandler(async (req, res) => {
   const data = await FactoryService.setCurrentFinancialYear(req.params.id);
   sendSuccess(res, data, 'Current financial year updated successfully');
@@ -76,6 +101,11 @@ module.exports = {
   listFinancialYears,
   getCurrentFinancialYear,
   createFinancialYear,
+  updateFinancialYear,
+  updateFinancialYearStatus,
+  getFinancialYearPeriods,
+  getCloseChecklist,
+  deleteFinancialYear,
   setCurrentFinancialYear,
   listAssignedUsers,
   assignUser,

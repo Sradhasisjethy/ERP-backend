@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { BaseAuditedModel } = require('../../core/AuditedModel');
+const { Organization } = require('../organization/organization.model');
 
 /**
  * A physical production facility (BR-29 access is scoped per factory; BR-04
@@ -53,6 +54,14 @@ Factory.initAudited(
     // BR-09: material consumption variance beyond this configurable threshold
     // requires supervisor approval. Any non-zero variance still requires a
     // reason regardless of this threshold.
+    // QC-01: opt-in. While false the plant behaves exactly as before — a lot
+    // finishing its curing period goes straight to AVAILABLE. While true, a
+    // lot of a qcRequired product waits in QC_HOLD for a passing FINAL test.
+    qcHoldEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     varianceThresholdPercent: {
       type: DataTypes.DECIMAL(5, 2),
       allowNull: false,
@@ -94,5 +103,9 @@ Factory.initAudited(
     tableName: 'factories',
   }
 );
+
+// The organisation a plant belongs to — its name and GSTIN head every printed
+// document.
+Factory.belongsTo(Organization, { as: 'organization', foreignKey: 'organizationId' });
 
 module.exports = { Factory };

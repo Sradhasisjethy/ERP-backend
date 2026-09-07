@@ -49,31 +49,51 @@ const promoteCuredLots = async () => {
   const factories = await Factory.findAll({ attributes: ['id'] });
   const alerts = [];
 
+  // Each factory is isolated. One plant's data or configuration must not stop
+  // every other plant releasing its cured stock: a missing QC_HOLD enum value
+  // at a single QC-enabled factory used to abort the whole run, so no lot
+  // anywhere left CURING and nothing could be dispatched the next morning.
+  const failures = [];
+
   for (const factory of factories) {
-    const due = await StockLot.findAll({
-      where: { factoryId: factory.id, status: 'CURING' },
-      include: [{ model: Product, as: 'product', attributes: ['name'] }],
-    });
-
-    await StockLedgerService.promoteEligibleLots(factory.id);
-
-    for (const lot of due) {
-      await lot.reload();
-      if (lot.status !== 'AVAILABLE') continue;
-      alerts.push({
-        type: 'CURING_COMPLETE',
-        severity: 'LOW',
-        title: 'Curing complete',
-        message: `Lot ${lot.lotNumber} (${lot.product?.name || 'product'}) has finished curing and is now available`,
-        factoryId: factory.id,
-        entityType: 'StockLot',
-        entityId: lot.id,
-        dedupeKey: `CURING_COMPLETE:${lot.id}`,
+    try {
+      const due = await StockLot.findAll({
+        where: { factoryId: factory.id, status: 'CURING' },
+        include: [{ model: Product, as: 'product', attributes: ['name'] }],
       });
+
+      await StockLedgerService.promoteEligibleLots(factory.id);
+
+      for (const lot of due) {
+        await lot.reload();
+        if (lot.status !== 'AVAILABLE') continue;
+        alerts.push({
+          type: 'CURING_COMPLETE',
+          severity: 'LOW',
+          title: 'Curing complete',
+          message: `Lot ${lot.lotNumber} (${lot.product?.name || 'product'}) has finished curing and is now available`,
+          factoryId: factory.id,
+          entityType: 'StockLot',
+          entityId: lot.id,
+          dedupeKey: `CURING_COMPLETE:${lot.id}`,
+        });
+      }
+    } catch (error) {
+      failures.push(`${factory.id}: ${error.message}`);
     }
   }
 
   const raised = await NotificationsService.raiseMany(alerts);
+
+  // Raised first so the promotions that did succeed are reported, then thrown
+  // so the run is still recorded as failed — a factory silently not promoting
+  // is worse than a red job.
+  if (failures.length) {
+    throw new Error(
+      `promoteCuredLots failed for ${failures.length} of ${factories.length} factories — ${failures.join('; ')}`
+    );
+  }
+
   return { promoted: alerts.length, ...raised };
 };
 

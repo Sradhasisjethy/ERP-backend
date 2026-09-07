@@ -45,6 +45,21 @@ Product.initAudited(
       type: DataTypes.ENUM('FINISHED_GOOD', 'RAW_MATERIAL'),
       defaultValue: 'FINISHED_GOOD',
     },
+    // Sold alongside another product rather than on its own. Only affects what
+    // the bundle screen offers — an accessory is an ordinary product in every
+    // other respect, and can still be sold by itself.
+    isAccessory: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    // QC-01: does a produced lot of this product need a passing test before it
+    // can be sold? Independent of curingDays, which is about age, not strength.
+    qcRequired: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     curingDays: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -83,6 +98,29 @@ Product.initAudited(
       type: DataTypes.BIGINT,
       allowNull: false,
       defaultValue: 0,
+    },
+    sellingPricePaise: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    openingStockQty: {
+      type: DataTypes.DECIMAL(14, 4),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    openingStockRatePaise: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      defaultValue: 0,
+    },
+    openingStockDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    defaultLocation: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
     status: {
       type: DataTypes.ENUM('active', 'inactive'),

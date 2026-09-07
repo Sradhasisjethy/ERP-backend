@@ -3,6 +3,7 @@ const { sequelize } = require('../../config/database');
 const { StockLedgerService } = require('./stockLedger.service');
 const { StockAdjustmentService } = require('./stockAdjustment.service');
 const { ReservationService } = require('./reservation.service');
+const { StockSummaryService } = require('./stockSummary.service');
 const { scopeListToFactories, assertCanUseFactory } = require('../../core/salesScope');
 const { sendSuccess, sendList } = require('../../utils/response');
 
@@ -12,6 +13,21 @@ const listLots = asyncHandler(async (req, res) => {
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await StockLedgerService.listLots(Number(page), Number(limit), { productId, status, search, sortBy, sortDir, baseWhere });
   sendList(res, req, data, 'Stock lots retrieved successfully');
+});
+
+/**
+ * Stock rolled up per material. The lot list answers "which batches"; this
+ * answers "how much cement do we have", which is the question someone
+ * reordering or promising a delivery actually asks.
+ */
+const listStockByMaterial = asyncHandler(async (req, res) => {
+  const { page, limit, factoryId, category, search, hideZero } = req.query;
+  // BR-29: stock is location data, same as the lot list.
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await StockSummaryService.listByMaterial(Number(page), Number(limit), {
+    category, search, hideZero, baseWhere,
+  });
+  sendList(res, req, data, 'Stock by material retrieved successfully');
 });
 
 const listLedgerEntries = asyncHandler(async (req, res) => {
@@ -62,4 +78,15 @@ const releaseLotEarly = asyncHandler(async (req, res) => {
   sendSuccess(res, data, 'Lot released early successfully');
 });
 
-module.exports = { listLots, listLedgerEntries, getStockBalance, releaseLotEarly, listAdjustments, createAdjustment };
+const listReservations = asyncHandler(async (req, res) => {
+  const { page, limit, factoryId, productId, status, search } = req.query;
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ReservationService.listAll(Number(page), Number(limit), { productId, status, search, baseWhere });
+  sendList(res, req, data, 'Stock reservations retrieved successfully');
+});
+
+module.exports = {
+  listStockByMaterial,
+  listLots, listLedgerEntries, getStockBalance, releaseLotEarly,
+  listAdjustments, createAdjustment, listReservations,
+};

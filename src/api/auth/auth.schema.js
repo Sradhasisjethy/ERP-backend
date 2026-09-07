@@ -8,7 +8,11 @@ const loginSchema = z.object({
 });
 
 const refreshSchema = z.object({
-  body: z.object({}).strict().optional(),
+  body: z
+    .object({
+      refreshToken: z.string().optional(),
+    })
+    .optional(),
 });
 
 const forgotPasswordSchema = z.object({

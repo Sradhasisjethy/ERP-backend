@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { BaseAuditedModel } = require('../../core/AuditedModel');
 const { SalesOrder } = require('../sales/salesOrder.model');
+const { Factory } = require('../factory/factory.model');
 
 /**
  * M15: dispatch document. Created directly in DISPATCHED status (mirrors the
@@ -70,5 +71,8 @@ DeliveryChallan.initAudited(
 );
 
 DeliveryChallan.belongsTo(SalesOrder, { as: 'salesOrder', foreignKey: 'salesOrderId' });
+// The dispatching plant, for the letterhead and for the state that decides
+// whether a movement is inter- or intra-state.
+DeliveryChallan.belongsTo(Factory, { as: 'factory', foreignKey: 'factoryId' });
 
 module.exports = { DeliveryChallan };

@@ -1,8 +1,10 @@
 const { User } = require('../api/users/user.model');
+const { EmployeeDocument } = require('../api/users/employeeDocument.model');
 const { Tenant } = require('../api/organization/tenant.model');
 const { Organization } = require('../api/organization/organization.model');
 const { Office } = require('../api/organization/office.model');
 const { Department } = require('../api/organization/department.model');
+const { OfficeDepartment } = require('../api/organization/officeDepartment.model');
 const { AdGroup } = require('../api/roles/role.model');
 const { AdGroupMember } = require('../api/roles/adGroupMember.model');
 const { TenantSettings } = require('../api/settings/settings.model');
@@ -68,6 +70,15 @@ const { PartyAddress } = require('../api/parties/partyAddress.model');
 const { Cheque } = require('../api/payments/cheque.model');
 const { PurchaseIndent, PurchaseIndentLine } = require('../api/purchasing/purchaseIndent.model');
 const { Notification } = require('../api/notifications/notification.model');
+const { QualityInspection } = require('../api/quality/qualityInspection.model');
+const { Vehicle } = require('../api/vehicles/vehicle.model');
+const { BundleRule } = require('../api/bundles/bundleRule.model');
+const { BundleComponent } = require('../api/bundles/bundleComponent.model');
+const { OverrideReasonCode } = require('../api/bundles/overrideReasonCode.model');
+const { BundleComponentSuppression } = require('../api/bundles/bundleComponentSuppression.model');
+const { BundleOverrideAudit } = require('../api/bundles/bundleOverrideAudit.model');
+const { IdempotencyKey } = require('../api/idempotency/idempotencyKey.model');
+const { RefreshToken } = require('../api/auth/refreshToken.model');
 
 // Tenant associations
 Tenant.hasMany(Organization, { foreignKey: 'tenantId' });
@@ -152,6 +163,20 @@ Factory.belongsTo(Organization, { foreignKey: 'organizationId' });
 Office.hasMany(User, { foreignKey: 'officeId' });
 User.belongsTo(Office, { foreignKey: 'officeId' });
 
+// Office <-> Department Many-to-Many associations
+Office.belongsToMany(Department, {
+  through: OfficeDepartment,
+  foreignKey: 'officeId',
+  otherKey: 'departmentId',
+  as: 'departments',
+});
+Department.belongsToMany(Office, {
+  through: OfficeDepartment,
+  foreignKey: 'departmentId',
+  otherKey: 'officeId',
+  as: 'offices',
+});
+
 // Department associations
 Department.hasMany(User, { foreignKey: 'departmentId' });
 User.belongsTo(Department, { foreignKey: 'departmentId' });
@@ -159,6 +184,10 @@ User.belongsTo(Department, { foreignKey: 'departmentId' });
 // AdGroupMember associations
 User.hasMany(AdGroupMember, { foreignKey: 'employeeId' });
 AdGroupMember.belongsTo(User, { foreignKey: 'employeeId' });
+
+// EmployeeDocument associations
+User.hasMany(EmployeeDocument, { foreignKey: 'employeeId', as: 'documents' });
+EmployeeDocument.belongsTo(User, { foreignKey: 'employeeId' });
 
 // Factory / financial year / user-factory scoping (BR-29, M01)
 Factory.hasMany(UserFactory, { foreignKey: 'factoryId' });
@@ -176,6 +205,7 @@ AuditLog.belongsTo(User, { foreignKey: 'userId' });
 
 // Party extensions (M04)
 Party.hasOne(LabourWageProfile, { as: 'wageProfile', foreignKey: 'partyId' });
+Party.belongsTo(Party, { as: 'contractor', foreignKey: 'contractorId' });
 
 module.exports = {
   User,
@@ -183,6 +213,7 @@ module.exports = {
   Organization,
   Office,
   Department,
+  OfficeDepartment,
   AdGroup,
   AdGroupMember,
   TenantSettings,
@@ -249,4 +280,14 @@ module.exports = {
   PurchaseIndent,
   PurchaseIndentLine,
   Notification,
+  EmployeeDocument,
+  QualityInspection,
+  Vehicle,
+  BundleRule,
+  BundleComponent,
+  OverrideReasonCode,
+  BundleComponentSuppression,
+  BundleOverrideAudit,
+  IdempotencyKey,
+  RefreshToken,
 };

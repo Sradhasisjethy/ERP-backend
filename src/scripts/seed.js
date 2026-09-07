@@ -1,4 +1,5 @@
 const { sequelize } = require('../config/database');
+const { DEFAULT_ROLES } = require('../constants/defaultRoles');
 const {
   User,
   Tenant,
@@ -97,24 +98,10 @@ const seedDatabase = async () => {
     );
     console.log(`Created ${departments.length} Departments`);
 
-    // f. 5 Roles (created before employees so the first employee can be assigned one)
-    const rolesData = [
-      { name: 'Platform Admin', description: 'Full system access', permissions: ['*'] },
-      {
-        // Can onboard and edit people but not delete them — the kind of split the
-        // coarse EMPLOYEE_WRITE this used to hold couldn't express.
-        name: 'HR Manager',
-        description: 'HR capabilities',
-        permissions: ['EMPLOYEE_READ', 'EMPLOYEE_CREATE', 'EMPLOYEE_MODIFY', 'ORG_READ', 'SETTINGS_READ'],
-      },
-      {
-        name: 'Engineering Lead',
-        description: 'Engineering team management',
-        permissions: ['EMPLOYEE_READ', 'ORG_READ'],
-      },
-      { name: 'Employee', description: 'Standard access', permissions: ['EMPLOYEE_READ'] },
-      { name: 'Guest', description: 'Limited access', permissions: [] },
-    ];
+    // f. Roles (created before employees so the first employee can be assigned one).
+    // Defined in constants/defaultRoles.js so the same set can be applied to an
+    // existing tenant without re-seeding — see scripts/ensure-default-roles.js.
+    const rolesData = DEFAULT_ROLES;
 
     const roles = await Promise.all(
       rolesData.map((r) =>

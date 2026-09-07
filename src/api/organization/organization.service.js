@@ -2,6 +2,8 @@ const { Op } = require('sequelize');
 const { Organization } = require('./organization.model');
 const { Office } = require('./office.model');
 const { Department } = require('./department.model');
+const { OfficeDepartment } = require('./officeDepartment.model');
+const { getTenantId } = require('../../core/tenantContext');
 const { NotFoundError } = require('../../core/AppError');
 
 class OrganizationService {
@@ -48,29 +50,77 @@ class OrganizationService {
       where,
       limit,
       offset,
-      include: [{ model: Organization, attributes: ['id', 'name', 'code'] }],
+      distinct: true,
+      include: [
+        { model: Organization, attributes: ['id', 'name', 'code'] },
+        {
+          model: Department,
+          as: 'departments',
+          attributes: ['id', 'name', 'code'],
+          through: { attributes: [] },
+        },
+      ],
     });
   }
 
   static async getOffice(id) {
     const office = await Office.findByPk(id, {
-      include: [{ model: Organization, attributes: ['id', 'name', 'code'] }],
+      include: [
+        { model: Organization, attributes: ['id', 'name', 'code'] },
+        {
+          model: Department,
+          as: 'departments',
+          attributes: ['id', 'name', 'code'],
+          through: { attributes: [] },
+        },
+      ],
     });
     if (!office) throw new NotFoundError('Office not found');
     return office;
   }
 
   static async createOffice(data) {
-    return Office.create(data);
+    const { departmentIds, ...officeData } = data;
+    const tenantId = officeData.tenantId || getTenantId() || (officeData.organizationId ? (await Organization.findByPk(officeData.organizationId, { attributes: ['tenantId'] }))?.get('tenantId') : null);
+    const office = await Office.create({ ...officeData, ...(tenantId ? { tenantId } : {}) });
+    const finalTenantId = office.tenantId || office.get('tenantId') || tenantId;
+
+    if (Array.isArray(departmentIds) && departmentIds.length > 0) {
+      const rows = departmentIds.map((deptId) => ({
+        tenantId: finalTenantId,
+        officeId: office.id,
+        departmentId: deptId,
+      }));
+      await OfficeDepartment.bulkCreate(rows, { ignoreDuplicates: true });
+    }
+
+    return this.getOffice(office.id);
   }
 
   static async updateOffice(id, data) {
+    const { departmentIds, ...officeData } = data;
     const office = await this.getOffice(id);
-    return office.update(data);
+    await office.update(officeData);
+    const tenantId = office.tenantId || office.get('tenantId') || getTenantId();
+
+    if (Array.isArray(departmentIds)) {
+      await OfficeDepartment.destroy({ where: { officeId: office.id } });
+      if (departmentIds.length > 0) {
+        const rows = departmentIds.map((deptId) => ({
+          tenantId,
+          officeId: office.id,
+          departmentId: deptId,
+        }));
+        await OfficeDepartment.bulkCreate(rows, { ignoreDuplicates: true });
+      }
+    }
+
+    return this.getOffice(office.id);
   }
 
   static async deleteOffice(id) {
     const office = await this.getOffice(id);
+    await OfficeDepartment.destroy({ where: { officeId: office.id } });
     await office.destroy();
     return true;
   }
@@ -80,20 +130,29 @@ class OrganizationService {
     const offset = (page - 1) * limit;
     const where = {};
     if (organizationId) where.organizationId = organizationId;
-    if (officeId) where.officeId = officeId;
     if (search) where.name = { [Op.iLike]: `%${search}%` };
     if (status) where.status = status;
+
+    const include = [
+      { model: Organization, attributes: ['id', 'name', 'code'] },
+      { model: Office, attributes: ['id', 'name', 'city', 'country'] },
+      {
+        model: Office,
+        as: 'offices',
+        attributes: ['id', 'name', 'code', 'city', 'country'],
+        through: { attributes: [] },
+        ...(officeId ? { where: { id: officeId }, required: true } : {}),
+      },
+      { model: Department, as: 'subDepartments' },
+      { model: Department, as: 'parentDepartment', attributes: ['id', 'name', 'code'] },
+    ];
 
     return Department.findAndCountAll({
       where,
       limit,
       offset,
-      include: [
-        { model: Organization, attributes: ['id', 'name', 'code'] },
-        { model: Office, attributes: ['id', 'name', 'city', 'country'] },
-        { model: Department, as: 'subDepartments' },
-        { model: Department, as: 'parentDepartment', attributes: ['id', 'name', 'code'] },
-      ],
+      distinct: true,
+      include,
     });
   }
 
@@ -102,6 +161,12 @@ class OrganizationService {
       include: [
         { model: Organization, attributes: ['id', 'name', 'code'] },
         { model: Office, attributes: ['id', 'name', 'city', 'country'] },
+        {
+          model: Office,
+          as: 'offices',
+          attributes: ['id', 'name', 'code', 'city', 'country'],
+          through: { attributes: [] },
+        },
         { model: Department, as: 'subDepartments' },
         { model: Department, as: 'parentDepartment' },
       ],
@@ -111,19 +176,60 @@ class OrganizationService {
   }
 
   static async createDepartment(data) {
-    return Department.create(data);
+    const { officeIds, ...deptData } = data;
+    const tenantId = deptData.tenantId || getTenantId() || (deptData.organizationId ? (await Organization.findByPk(deptData.organizationId, { attributes: ['tenantId'] }))?.get('tenantId') : null);
+    const dept = await Department.create({ ...deptData, ...(tenantId ? { tenantId } : {}) });
+    const finalTenantId = dept.tenantId || dept.get('tenantId') || tenantId;
+
+    const targetOfficeIds = Array.isArray(officeIds) ? [...officeIds] : [];
+    if (dept.officeId && !targetOfficeIds.includes(dept.officeId)) {
+      targetOfficeIds.push(dept.officeId);
+    }
+
+    if (targetOfficeIds.length > 0) {
+      const rows = targetOfficeIds.map((offId) => ({
+        tenantId: finalTenantId,
+        officeId: offId,
+        departmentId: dept.id,
+      }));
+      await OfficeDepartment.bulkCreate(rows, { ignoreDuplicates: true });
+    }
+
+    return this.getDepartment(dept.id);
   }
 
   static async updateDepartment(id, data) {
+    const { officeIds, ...deptData } = data;
     const dept = await this.getDepartment(id);
-    return dept.update(data);
+    await dept.update(deptData);
+    const tenantId = dept.tenantId || dept.get('tenantId') || getTenantId();
+
+    if (Array.isArray(officeIds)) {
+      await OfficeDepartment.destroy({ where: { departmentId: dept.id } });
+      const targetOfficeIds = [...officeIds];
+      if (dept.officeId && !targetOfficeIds.includes(dept.officeId)) {
+        targetOfficeIds.push(dept.officeId);
+      }
+      if (targetOfficeIds.length > 0) {
+        const rows = targetOfficeIds.map((offId) => ({
+          tenantId,
+          officeId: offId,
+          departmentId: dept.id,
+        }));
+        await OfficeDepartment.bulkCreate(rows, { ignoreDuplicates: true });
+      }
+    }
+
+    return this.getDepartment(dept.id);
   }
 
   static async deleteDepartment(id) {
     const dept = await this.getDepartment(id);
+    await OfficeDepartment.destroy({ where: { departmentId: dept.id } });
     await dept.destroy();
     return true;
   }
 }
 
 module.exports = { OrganizationService };
+

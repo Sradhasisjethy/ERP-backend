@@ -72,6 +72,16 @@ MixDesign.initAudited(
       allowNull: false,
       defaultValue: 'MANUFACTURING',
     },
+    laborCostPaise: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    overheadCostPaise: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+    },
   },
   {
     sequelize,

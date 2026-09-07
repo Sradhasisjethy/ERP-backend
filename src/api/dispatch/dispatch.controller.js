@@ -1,6 +1,8 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { hasPermission } = require('../../middlewares/authorize');
 const { scopeListToFactories, assertCanSeeRecord } = require('../../core/salesScope');
 const { DispatchService } = require('./dispatch.service');
+const { SettingsService } = require('../settings/settings.service');
 const { renderChallanPdf } = require('./challanPdf.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 
@@ -34,7 +36,18 @@ const cancelChallan = asyncHandler(async (req, res) => {
 
 const printChallan = asyncHandler(async (req, res) => {
   const challan = await DispatchService.getChallan(req.params.id);
-  const doc = renderChallanPdf(challan, { format: req.query.format });
+
+  // BR-07: the rate, taxable value and tax columns are drawn only for someone
+  // allowed to see money. A driver or a shop-floor user prints the same
+  // document with those columns absent — which is the whole reason the rule
+  // exists, since this is the document that used to leak prices.
+  const doc = renderChallanPdf(challan, {
+    format: req.query.format,
+    showRates: hasPermission(req.user, 'VIEW_RATES'),
+    // Settings > General decides how the date reads. Defaults apply when the
+    // tenant has never opened that screen — a document must still print.
+    display: await SettingsService.getDisplayPreferences(),
+  });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${challan.challanNumber.replace(/\//g, '-')}.pdf"`);

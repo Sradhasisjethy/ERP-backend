@@ -24,6 +24,16 @@ HsnCode.initAudited(
       allowNull: false,
       defaultValue: 0,
     },
+    codeType: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'HSN',
+    },
+    cessPercent: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
     status: {
       type: DataTypes.ENUM('active', 'inactive'),
       defaultValue: 'active',

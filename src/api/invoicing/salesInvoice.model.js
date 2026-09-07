@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { BaseAuditedModel } = require('../../core/AuditedModel');
 const { Party } = require('../parties/party.model');
+const { Factory } = require('../factory/factory.model');
 
 /**
  * M20: GST sales invoice. Created from one or more DISPATCHED, not-yet-invoiced
@@ -96,5 +97,9 @@ SalesInvoice.initAudited(
 );
 
 SalesInvoice.belongsTo(Party, { as: 'customer', foreignKey: 'customerPartyId' });
+// The issuing plant, and through it the organisation whose name and GSTIN head
+// the printed tax invoice. factoryId was always stored; only the association
+// was missing, so any include of it failed at query time.
+SalesInvoice.belongsTo(Factory, { as: 'factory', foreignKey: 'factoryId' });
 
 module.exports = { SalesInvoice };

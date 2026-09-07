@@ -2,6 +2,7 @@ const { asyncHandler } = require('../../core/asyncHandler');
 const { scopeListToFactories } = require('../../core/salesScope');
 const { ProductionService } = require('./production.service');
 const { sendSuccess, sendList } = require('../../utils/response');
+const { renderProductionSheetPdf } = require('./productionSheetPdf.service');
 
 // Production Plan
 const generateProposal = asyncHandler(async (req, res) => {
@@ -40,6 +41,35 @@ const createEntry = asyncHandler(async (req, res) => {
 });
 
 // Variance approval
+const cancelEntry = asyncHandler(async (req, res) => {
+  const data = await ProductionService.cancelEntry(req.params.id, req.body.reason);
+  sendSuccess(res, data, 'Production entry cancelled successfully');
+});
+const printSheet = asyncHandler(async (req, res) => {
+  const { plan, lines } = await ProductionService.getSheetData(req.params.id);
+  const doc = renderProductionSheetPdf(plan, lines);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${String(plan.planNumber || plan.id).replace(/\//g, '-')}-sheet.pdf"`);
+  doc.pipe(res);
+  doc.end();
+});
+const listOrders = asyncHandler(async (req, res) => {
+  const { page, limit, factoryId, status, productId, search } = req.query;
+  const baseWhere = await scopeListToFactories(req, {}, factoryId);
+  const data = await ProductionService.listOrders(Number(page), Number(limit), { status, productId, search, baseWhere });
+  sendList(res, req, data, 'Production orders retrieved successfully');
+});
+const listConsumptions = asyncHandler(async (req, res) => {
+  const { page, limit, factoryId, productId, rawMaterialProductId, search } = req.query;
+  // Scoped through the joined entry, so the factory filter is resolved here
+  // rather than as a plain where-clause on the consumption row.
+  const scope = await scopeListToFactories(req, {}, factoryId);
+  const data = await ProductionService.listConsumptions(Number(page), Number(limit), {
+    productId, rawMaterialProductId, search, factoryId: scope.factoryId,
+  });
+  sendList(res, req, data, 'Material consumption retrieved successfully');
+});
 const listPendingApprovals = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, search } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
@@ -65,7 +95,8 @@ const createWastage = asyncHandler(async (req, res) => {
 
 module.exports = {
   generateProposal, listPlans, getPlan, confirmPlan,
-  listEntries, getEntry, createEntry,
+  listEntries, getEntry, createEntry, cancelEntry,
+  listOrders, listConsumptions, printSheet,
   listPendingApprovals, approveVariance,
   listWastage, createWastage,
 };

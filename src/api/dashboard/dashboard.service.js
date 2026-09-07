@@ -1,4 +1,6 @@
 const { Op, fn, col, literal } = require('sequelize');
+const { todayInZone, monthStartInZone } = require('../../utils/dateDisplay');
+const { SettingsService } = require('../settings/settings.service');
 const { Factory } = require('../factory/factory.model');
 const { Product } = require('../products/product.model');
 const { Party } = require('../parties/party.model');
@@ -37,18 +39,21 @@ const factoryScope = (factoryIds) => {
   return { factoryId: { [Op.in]: factoryIds } }; // [] yields IN (NULL) -> no rows
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const monthStartISO = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+/**
+ * The tenant's calendar boundaries, not the server's. Both were derived from
+ * UTC, so at UTC+05:30 "today" stayed yesterday until 05:30 local and
+ * month-to-date began on the last day of the previous month.
+ */
+const boundaries = async () => {
+  const { timeZone } = await SettingsService.getDisplayPreferences();
+  return { today: todayInZone(timeZone), monthStart: monthStartInZone(timeZone) };
 };
 
 class DashboardService {
   /** Widgets any authenticated user may see — quantities and counts, no money. */
   static async getOperationalWidgets(factoryIds) {
     const factoryFilter = factoryScope(factoryIds);
-    const today = todayISO();
-    const monthStart = monthStartISO();
+    const { today, monthStart } = await boundaries();
 
     const [
       productionToday, productionMTD, dispatchesToday, pendingOrders,
@@ -139,8 +144,7 @@ class DashboardService {
    */
   static async getFinancialWidgets(factoryIds) {
     const factoryFilter = factoryScope(factoryIds);
-    const monthStart = monthStartISO();
-    const today = todayISO();
+    const { today, monthStart } = await boundaries();
 
     const [salesToday, salesMTD, purchaseMTD] = await Promise.all([
       SalesInvoice.sum('totalPaise', { where: { ...factoryFilter, status: 'POSTED', invoiceDate: today } }),
@@ -260,6 +264,55 @@ class DashboardService {
   }
 
   /**
+   * The sales half of the dashboard: where orders are stuck, and who is buying.
+   *
+   * Gated behind the same VIEW_RATES grant as the other financial widgets —
+   * customer names beside invoiced value is commercial information, and BR-07
+   * keeps that away from the shop floor.
+   */
+  static async getSalesWidgets(factoryIds) {
+    const factoryFilter = factoryScope(factoryIds);
+    const { monthStart } = await boundaries();
+
+    // Where the order book actually sits. Counting by status is what turns
+    // "23 open orders" into something a sales lead can act on.
+    const pipelineRows = await SalesOrder.findAll({
+      attributes: ['status', [fn('COUNT', col('id')), 'count']],
+      where: factoryFilter,
+      group: ['status'],
+      raw: true,
+    });
+    const pipeline = pipelineRows.map((r) => ({ status: r.status, count: Number(r.count) }));
+
+    // Top customers by what was actually invoiced this month, not by order
+    // value — an order is a promise, an invoice is revenue.
+    const topRows = await SalesInvoice.findAll({
+      attributes: [
+        'customerPartyId',
+        [fn('SUM', col('totalPaise')), 'totalPaise'],
+        [fn('COUNT', col('SalesInvoice.id')), 'invoices'],
+      ],
+      where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.gte]: monthStart } },
+      include: [{ model: Party, as: 'customer', attributes: ['name'] }],
+      group: ['SalesInvoice.customerPartyId', 'customer.id', 'customer.name'],
+      order: [[literal('"totalPaise"'), 'DESC']],
+      limit: 5,
+      raw: true,
+      nest: true,
+    });
+
+    return {
+      pipeline,
+      topCustomers: topRows.map((r) => ({
+        partyId: r.customerPartyId,
+        name: r.customer?.name || 'Unknown',
+        totalPaise: Number(r.totalPaise || 0),
+        invoices: Number(r.invoices || 0),
+      })),
+    };
+  }
+
+  /**
    * Assembles the dashboard for one caller. `canViewRates` decides whether the
    * financial half is computed at all — not just whether it's displayed.
    */
@@ -270,7 +323,14 @@ class DashboardService {
     ]);
 
     const payload = { operational, trends, scope: { factoryIds: factoryIds || null, financial: canViewRates } };
-    if (canViewRates) payload.financial = await this.getFinancialWidgets(factoryIds);
+    if (canViewRates) {
+      const [financial, sales] = await Promise.all([
+        this.getFinancialWidgets(factoryIds),
+        this.getSalesWidgets(factoryIds),
+      ]);
+      payload.financial = financial;
+      payload.sales = sales;
+    }
     return payload;
   }
 }

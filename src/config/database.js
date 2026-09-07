@@ -2,14 +2,14 @@ const { Sequelize } = require('sequelize');
 const { env } = require('./env');
 const cls = require('cls-hooked');
 const { NAMESPACE_NAME } = require('../core/tenantContext');
+const { resolveTestDatabase } = require('./testDatabaseName');
 
 // Use cls-hooked for Sequelize transactions and hooks
 Sequelize.useCLS(cls.createNamespace(NAMESPACE_NAME));
 
 // Tests run against a separate database so `sequelize.sync({ force: true })` in test
 // setup never touches development data.
-const database =
-  env.NODE_ENV === 'test' ? env.DB_NAME_TEST || `${env.DB_NAME}_test` : env.DB_NAME;
+const database = env.NODE_ENV === 'test' ? resolveTestDatabase(env) : env.DB_NAME;
 
 const sequelize = new Sequelize({
   dialect: 'postgres',

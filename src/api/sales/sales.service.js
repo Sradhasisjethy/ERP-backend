@@ -13,6 +13,9 @@ const { NotFoundError, ValidationError, ForbiddenError } = require('../../core/A
 const { addPaise } = require('../../utils/money');
 const { toOrder } = require('../../utils/pagination');
 const { NotificationsService } = require('../notifications/notifications.service');
+const { BundleExpansionService } = require('../bundles/bundleExpansion.service');
+const { BundleDocumentService } = require('../bundles/bundleDocument.service');
+const { PricingService } = require('../pricing/pricing.service');
 
 // Orders in these statuses still hold a live soft reservation against ATP.
 const ACTIVE_ORDER_STATUSES = ['CONFIRMED', 'IN_PRODUCTION', 'PARTIALLY_DISPATCHED'];
@@ -156,7 +159,7 @@ class SalesService {
     return order;
   }
 
-  static async createSalesOrder({ lines, allowCreditOverride, ...data }) {
+  static async createSalesOrder({ lines, allowCreditOverride, canOverrideMandatory = false, ...data }) {
     this.assertDatesCoherent(data);
 
     const result = await sequelize.transaction(async (transaction) => {
@@ -176,24 +179,30 @@ class SalesService {
       // corrupt that party's ledger from the first document.
       await assertUsableParty(Party, data.customerPartyId, 'CUSTOMER', transaction);
 
-      const totalAmountPaise = addPaise(...lines.map((l) => l.orderedQty * l.ratePaise));
+      const order = await SalesOrder.create({ ...data, orderNumber: documentNumber, totalAmountPaise: 0 }, { transaction });
 
-      const creditResult = await this.checkCreditLimit(data.customerPartyId, totalAmountPaise, { allowOverride: allowCreditOverride, transaction });
+      const saved = await SalesOrderLine.bulkCreate(
+        await this.buildLines(order, lines, transaction),
+        { transaction, individualHooks: true, validate: true }
+      );
 
-      const order = await SalesOrder.create({ ...data, orderNumber: documentNumber, totalAmountPaise }, { transaction });
+      // Accessories the product brings with it are added here, not by the
+      // caller — one expansion path, and it is the same one the edit screen
+      // uses. An order of ordinary products never reaches the bundle tables.
+      await this.expandBundleLines(order, saved, transaction, { requested: lines, canOverrideMandatory });
 
-      // BR-12 / AC-3.1: whatever available stock can't cover becomes a
-      // production requirement on the line. Availability here excludes curing
-      // and already-reserved stock, so the shortfall is what must actually be
-      // made — not a number that quietly counts stock we can't ship.
-      const linesWithRequirement = [];
-      for (const line of lines) {
-        const availability = await ReservationService.getAvailability(data.factoryId, line.productId, transaction);
-        const productionRequired = Math.max(0, Number(line.orderedQty) - availability.available);
-        linesWithRequirement.push({ ...line, salesOrderId: order.id, productionRequired });
-      }
+      // Components carry money, so the total is recomputed from what actually
+      // ended up on the order rather than from what the caller sent — and the
+      // credit check runs against that final figure. Checking the pre-expansion
+      // total would let an order through on a limit the accessories breach.
+      const totalAmountPaise = await this.recomputeTotal(order.id, transaction);
+      await order.update({ totalAmountPaise }, { transaction });
 
-      await SalesOrderLine.bulkCreate(linesWithRequirement, { transaction, individualHooks: true, validate: true });
+      const creditResult = await this.checkCreditLimit(data.customerPartyId, totalAmountPaise, {
+        allowOverride: allowCreditOverride,
+        excludeOrderId: order.id,
+        transaction,
+      });
 
       const created = await this.getSalesOrder(order.id);
       return {
@@ -235,6 +244,159 @@ class SalesService {
   }
 
   /**
+   * Adds one line to a draft order and expands it if the product carries a
+   * bundle.
+   *
+   * The command endpoints work a line at a time — a salesperson adds a printer
+   * and watches the kit appear — where `updateSalesOrder` replaces the whole
+   * set and discards any accessory decisions already made on it.
+   */
+  static async addLine(orderId, { productId, orderedQty, ratePaise }) {
+    return sequelize.transaction(async (transaction) => {
+      const order = await SalesOrder.findByPk(orderId, { transaction });
+      if (!order) throw new NotFoundError('Sales order not found');
+      if (order.status !== 'DRAFT') {
+        throw new ValidationError(
+          `Only a DRAFT sales order can be edited (this one is ${order.status}). Cancel it, or short-close it if it has dispatches.`
+        );
+      }
+
+      await assertUsableProducts(Product, [productId], transaction);
+
+      const bundleParents = await BundleExpansionService.productsWithActiveRules([productId], order.orderDate);
+
+      // Same rule as validateLines: a repeat of an ordinary product is a slip,
+      // a repeat of a bundle product is a second configuration.
+      if (!bundleParents.has(productId)) {
+        const clash = await SalesOrderLine.findOne({
+          where: { salesOrderId: orderId, productId, lineRole: { [Op.ne]: 'COMPONENT' } },
+          transaction,
+        });
+        if (clash) {
+          throw new ValidationError('That product is already on this order — change its quantity instead');
+        }
+      }
+
+      const rate =
+        ratePaise !== undefined
+          ? Number(ratePaise)
+          : Number((await PricingService.resolveRate(productId, { partyId: order.customerPartyId })) ?? 0);
+
+      const [built] = await this.buildLines(order, [{ productId, orderedQty, ratePaise: rate }], transaction);
+      const line = await SalesOrderLine.create(built, { transaction });
+
+      const expansion = await this.expandBundleLines(order, [line], transaction);
+
+      const totalAmountPaise = await this.recomputeTotal(orderId, transaction);
+      await order.update({ totalAmountPaise }, { transaction });
+
+      return { line, warnings: expansion };
+    });
+  }
+
+  /**
+   * BR-12 / AC-3.1: whatever available stock cannot cover becomes a production
+   * requirement on the line. Availability deliberately EXCLUDES curing stock —
+   * curing stock is not available stock.
+   *
+   * Availability is drawn down as the lines are walked. Two lines of the same
+   * product each measured against the same untouched snapshot would book zero
+   * production on both: a 60 + 60 order against 100 units needs 20 made, not
+   * nothing. That could not happen while duplicate products were rejected
+   * outright; bundle parents are now allowed to repeat, so it can.
+   */
+  static async buildLines(order, lines, transaction) {
+    const bundleParents = await BundleExpansionService.productsWithActiveRules(
+      [...new Set(lines.map((l) => l.productId))],
+      order.orderDate
+    );
+
+    const consumed = new Map();
+    const built = [];
+
+    for (const line of lines) {
+      const availability = await ReservationService.getAvailability(order.factoryId, line.productId, transaction);
+      const alreadyTaken = consumed.get(line.productId) || 0;
+      const stillAvailable = Math.max(0, Number(availability.available) - alreadyTaken);
+      const qty = Number(line.orderedQty);
+
+      // `accessoryOverrides` is an instruction, not a column — it is applied
+      // after expansion and must not reach SalesOrderLine.create.
+      const { accessoryOverrides, ...persisted } = line;
+
+      built.push({
+        ...persisted,
+        salesOrderId: order.id,
+        productionRequired: Math.max(0, qty - stillAvailable),
+        lineRole: bundleParents.has(line.productId) ? 'PARENT' : 'STANDALONE',
+      });
+      consumed.set(line.productId, alreadyTaken + Math.min(qty, stillAvailable));
+    }
+
+    return built;
+  }
+
+  /** Runs expansion for each saved line whose product carries a bundle rule. */
+  static async expandBundleLines(order, savedLines, transaction, { requested = [], canOverrideMandatory = false } = {}) {
+    const parents = savedLines.filter((l) => l.lineRole === 'PARENT');
+    if (!parents.length) return [];
+
+    // Parents are matched back to their request lines by product, in order, so
+    // two lines of the same bundled product each get their own exclusions
+    // rather than sharing. Standalone lines in between do not disturb it.
+    const pending = new Map();
+    for (const line of requested) {
+      if (!pending.has(line.productId)) pending.set(line.productId, []);
+      pending.get(line.productId).push(line.accessoryOverrides || []);
+    }
+
+    const warnings = [];
+    for (const parent of parents) {
+      // The caller's transaction is passed explicitly: the lines being expanded
+      // are not committed yet, and a separate transaction cannot see them.
+      const result = await BundleDocumentService.reconcileLine(parent.id, {
+        newQty: Number(parent.orderedQty),
+        onDate: order.orderDate,
+        transaction,
+      });
+      warnings.push(...result.warnings);
+
+      // Decisions the salesperson made while typing the order. Applied after
+      // expansion, because both act on component lines that do not exist until
+      // expansion has created them — a suppression is a tombstone against the
+      // parent line, and a quantity override is an edit to a real line.
+      //
+      // Each goes through the same command the edit screen calls, so a decision
+      // taken at order entry is indistinguishable in the audit trail from the
+      // same decision taken a minute later.
+      for (const override of pending.get(parent.productId)?.shift() || []) {
+        if (override.exclude) {
+          await BundleDocumentService.suppress(parent.id, override.componentProductId, {
+            reasonCode: override.reasonCode,
+            reasonNote: override.reasonNote,
+            canOverrideMandatory,
+            transaction,
+          });
+          continue;
+        }
+
+        await BundleDocumentService.changeComponentQty(
+          parent.id,
+          override.componentProductId,
+          override.qty,
+          { transaction }
+        );
+      }
+    }
+    return warnings;
+  }
+
+  static async recomputeTotal(salesOrderId, transaction) {
+    const all = await SalesOrderLine.findAll({ where: { salesOrderId }, transaction });
+    return addPaise(...all.map((l) => Math.round(Number(l.orderedQty) * Number(l.ratePaise))));
+  }
+
+  /**
    * Line-level rules shared by create and edit.
    *
    * The duplicate-product check matters more than it looks: two lines for the
@@ -243,11 +405,18 @@ class SalesService {
    * production requirement on both lines instead of 20. Reservation, dispatch
    * tolerance and the production sheet all inherit that error.
    */
-  static async validateLines(lines, transaction) {
+  static async validateLines(lines, transaction, onDate) {
     if (!lines || !lines.length) throw new ValidationError('A sales order requires at least one line');
 
     const ids = lines.map((l) => l.productId);
-    const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
+
+    // A product that carries a bundle rule is the exception: two lines of the
+    // same printer are two separately configured kits, and merging them would
+    // destroy the distinction — one customer wanting the cable on one and not
+    // the other has no way to say so. See bundle-kitting.md test 11.
+    const bundleParents = await BundleExpansionService.productsWithActiveRules([...new Set(ids)], onDate);
+
+    const duplicate = ids.find((id, i) => ids.indexOf(id) !== i && !bundleParents.has(id));
     if (duplicate) {
       const product = await Product.findByPk(duplicate, { attributes: ['name'], transaction });
       throw new ValidationError(
@@ -276,7 +445,7 @@ class SalesService {
    * DRAFT line has no dispatch history or reservation to preserve, so a diff
    * would add reconciliation logic with nothing to reconcile.
    */
-  static async updateSalesOrder(id, { lines, ...data }) {
+  static async updateSalesOrder(id, { lines, canOverrideMandatory = false, ...data }) {
     return sequelize.transaction(async (transaction) => {
       const order = await SalesOrder.findByPk(id, { transaction });
       if (!order) throw new NotFoundError('Sales order not found');
@@ -299,33 +468,33 @@ class SalesService {
       // that factory's series and its stock availability was computed there.
       delete data.factoryId;
 
-      let totalAmountPaise = Number(order.totalAmountPaise);
+      if (lines) await this.validateLines(lines, transaction, data.orderDate || order.orderDate);
+
+      await order.update({ ...data }, { transaction });
+
       if (lines) {
-        await this.validateLines(lines, transaction);
-        totalAmountPaise = addPaise(...lines.map((l) => l.orderedQty * l.ratePaise));
+        // Replacing the lines wholesale takes the components and their
+        // tombstones with them (both cascade from the parent line), so a
+        // wholesale edit is a fresh configuration rather than a merge. The
+        // command endpoints in §6 of the bundle spec are the route for
+        // adjusting one accessory without discarding the rest.
+        await SalesOrderLine.destroy({ where: { salesOrderId: id }, transaction });
+
+        const saved = await SalesOrderLine.bulkCreate(
+          await this.buildLines(order, lines, transaction),
+          { transaction, individualHooks: true, validate: true }
+        );
+        await this.expandBundleLines(order, saved, transaction, { requested: lines, canOverrideMandatory });
       }
+
+      const totalAmountPaise = await this.recomputeTotal(id, transaction);
+      await order.update({ totalAmountPaise }, { transaction });
 
       await this.checkCreditLimit(data.customerPartyId || order.customerPartyId, totalAmountPaise, {
         allowOverride: data.allowCreditOverride,
         excludeOrderId: order.id,
         transaction,
       });
-
-      await order.update({ ...data, totalAmountPaise }, { transaction });
-
-      if (lines) {
-        await SalesOrderLine.destroy({ where: { salesOrderId: id }, transaction });
-        const rebuilt = [];
-        for (const line of lines) {
-          const availability = await ReservationService.getAvailability(order.factoryId, line.productId, transaction);
-          rebuilt.push({
-            ...line,
-            salesOrderId: id,
-            productionRequired: Math.max(0, Number(line.orderedQty) - availability.available),
-          });
-        }
-        await SalesOrderLine.bulkCreate(rebuilt, { transaction, individualHooks: true, validate: true });
-      }
 
       return this.getSalesOrder(id);
     });
