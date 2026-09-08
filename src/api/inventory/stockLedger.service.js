@@ -255,7 +255,9 @@ class StockLedgerService {
     const factory = await Factory.findByPk(factoryId, { transaction });
 
     if (totalAvailable < Number(quantity) && !(factory && factory.allowNegativeStock)) {
-      throw new ValidationError(`Insufficient stock: available ${totalAvailable}, requested ${quantity}`);
+      const product = await Product.findByPk(productId, { attributes: ['name', 'code'], transaction });
+      const prodLabel = product ? ` for "${product.name || product.code}"` : '';
+      throw new ValidationError(`Insufficient stock${prodLabel}: available ${totalAvailable}, requested ${quantity}`);
     }
 
     const consumed = [];
