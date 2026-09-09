@@ -1,3 +1,4 @@
+const { fn, col } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { searchWhere } = require('../../utils/pagination');
 const { SalesInvoice } = require('./salesInvoice.model');
@@ -12,6 +13,7 @@ const { HsnCode } = require('../products/hsnCode.model');
 const { Uom } = require('../products/uom.model');
 const { Organization } = require('../organization/organization.model');
 const { Party } = require('../parties/party.model');
+const { PaymentAllocation } = require('../payments/paymentAllocation.model');
 const { PartyAddress } = require('../parties/partyAddress.model');
 const { determineTax, splitTax } = require('./taxDetermination');
 const { Factory } = require('../factory/factory.model');
@@ -36,19 +38,62 @@ const roundToRupee = (paise) => {
 };
 
 class InvoicingService {
-  static async listInvoices(page, limit, { customerPartyId, status, search, baseWhere = {} } = {}) {
+  /**
+   * Every invoice carries what is still owed on it, not just what it was worth.
+   *
+   * Without this the receipt screen offered fully-settled invoices and showed
+   * the invoice total beside a "Full" button — click it and the server rightly
+   * refused with "allocation exceeds the outstanding balance". The guard was
+   * doing its job; the screen had no way to know.
+   *
+   * `openOnly` drops anything already settled, which is what a payment screen
+   * wants. Listing screens leave it off and get the full history.
+   */
+  static async listInvoices(page, limit, { customerPartyId, status, search, openOnly, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
     const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
     if (status) where.status = status;
 
     if (search) Object.assign(where, searchWhere(search, ['invoiceNumber']));
-    return SalesInvoice.findAndCountAll({
+    const result = await SalesInvoice.findAndCountAll({
       where,
       limit,
       offset,
       include: [{ model: Party, as: 'customer' }],
       order: [['invoiceDate', 'DESC']],
+    });
+
+    const rows = await this.withOutstanding(result.rows);
+    if (!openOnly) return { count: result.count, rows };
+
+    // Filtering after the page is fetched means the count can overstate what is
+    // shown. Acceptable here because the payment screens ask for one page of
+    // candidates, not a paginated report — and the alternative is a correlated
+    // subquery on every invoice listing in the app.
+    const open = rows.filter((invoice) => invoice.outstandingPaise > 0);
+    return { count: open.length, rows: open };
+  }
+
+  /** Attaches allocatedPaise / outstandingPaise, in one query for the page. */
+  static async withOutstanding(invoices) {
+    if (!invoices.length) return [];
+
+    const allocations = await PaymentAllocation.findAll({
+      attributes: ['invoiceId', [fn('SUM', col('allocatedAmountPaise')), 'allocated']],
+      where: { invoiceType: 'SALES', invoiceId: invoices.map((i) => i.id) },
+      group: ['invoiceId'],
+      raw: true,
+    });
+    const allocatedById = new Map(allocations.map((a) => [a.invoiceId, Number(a.allocated || 0)]));
+
+    return invoices.map((invoice) => {
+      const json = invoice.toJSON ? invoice.toJSON() : invoice;
+      const allocated = allocatedById.get(json.id) || 0;
+      // A cancelled invoice owes nothing regardless of what was allocated to it
+      // before it was cancelled.
+      const outstanding = json.status === 'CANCELLED' ? 0 : Math.max(0, Number(json.totalPaise) - allocated);
+      return { ...json, allocatedPaise: allocated, outstandingPaise: outstanding };
     });
   }
 

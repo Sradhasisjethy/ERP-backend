@@ -95,6 +95,43 @@ const createChequesFor = async ({ modes, factoryId, partyId, direction, date, re
   }
 };
 
+
+/**
+ * Attaches the human invoice number to each allocation.
+ *
+ * The allocation is polymorphic — `invoiceType` plus a bare `invoiceId` — so a
+ * detail screen listing allocations could only show UUIDs. Resolved here rather
+ * than by the caller so every consumer of a receipt or payment gets the same
+ * label, and so it cannot be forgotten on the next screen that needs it.
+ *
+ * One query per invoice type, not one per allocation.
+ */
+const withInvoiceNumbers = async (record) => {
+  const allocations = record?.allocations || [];
+  if (!allocations.length) return record;
+
+  const idsOfType = (type) => allocations.filter((a) => a.invoiceType === type).map((a) => a.invoiceId);
+  const [salesInvoices, purchaseInvoices] = await Promise.all([
+    idsOfType('SALES').length
+      ? SalesInvoice.findAll({ where: { id: idsOfType('SALES') }, attributes: ['id', 'invoiceNumber'] })
+      : [],
+    idsOfType('PURCHASE').length
+      ? PurchaseInvoice.findAll({ where: { id: idsOfType('PURCHASE') }, attributes: ['id', 'vendorInvoiceNumber'] })
+      : [],
+  ]);
+
+  const numbers = new Map();
+  salesInvoices.forEach((i) => numbers.set(i.id, i.invoiceNumber));
+  purchaseInvoices.forEach((i) => numbers.set(i.id, i.vendorInvoiceNumber));
+
+  const json = record.toJSON ? record.toJSON() : record;
+  json.allocations = allocations.map((a) => {
+    const plain = a.toJSON ? a.toJSON() : a;
+    return { ...plain, invoiceNumber: numbers.get(plain.invoiceId) || null };
+  });
+  return json;
+};
+
 class PaymentsService {
   // --- Receipts (customer money in) ---
   static async listReceipts(page, limit, { customerPartyId, search, baseWhere = {} } = {}) {
@@ -112,7 +149,7 @@ class PaymentsService {
   static async getReceipt(id) {
     const receipt = await Receipt.findByPk(id, { include: [{ model: Party, as: 'customer' }, { model: PaymentAllocation, as: 'allocations' }] });
     if (!receipt) throw new NotFoundError('Receipt not found');
-    return receipt;
+    return withInvoiceNumbers(receipt);
   }
 
   static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations }) {
@@ -211,7 +248,7 @@ class PaymentsService {
   static async getPayment(id) {
     const payment = await Payment.findByPk(id, { include: [{ model: Party, as: 'party' }, { model: PaymentAllocation, as: 'allocations' }] });
     if (!payment) throw new NotFoundError('Payment not found');
-    return payment;
+    return withInvoiceNumbers(payment);
   }
 
   static async createPayment({ factoryId, partyId, paymentDate, modes, allocations }) {

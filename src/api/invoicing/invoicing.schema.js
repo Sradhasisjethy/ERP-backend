@@ -10,6 +10,8 @@ const createInvoiceSchema = z.object({
 const cancelInvoiceSchema = z.object({ body: z.object({ reason: z.string().min(3) }) });
 
 const listQuerySchema = z.object({
+  // Payment screens want only what can still receive money.
+  openOnly: z.coerce.boolean().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(10),
   search: z.string().trim().min(1).optional(),
