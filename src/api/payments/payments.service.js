@@ -149,7 +149,7 @@ class PaymentsService {
   static async getReceipt(id) {
     const receipt = await Receipt.findByPk(id, { include: [{ model: Party, as: 'customer' }, { model: PaymentAllocation, as: 'allocations' }] });
     if (!receipt) throw new NotFoundError('Receipt not found');
-    return withInvoiceNumbers(receipt);
+    return receipt;
   }
 
   static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations }) {
@@ -232,6 +232,24 @@ class PaymentsService {
     });
   }
 
+  /**
+   * The receipt as a screen wants it: allocations carrying invoice numbers
+   * rather than bare `invoiceId`s.
+   *
+   * Separate from getReceipt on purpose. getReceipt is what the mutating paths
+   * use — cancelReceipt calls `.update()` on what it returns — and resolving
+   * the numbers means returning a plain object, which silently turned that
+   * `.update()` into a TypeError. A presentation concern must not change the
+   * type an internal caller depends on.
+   */
+  static async getReceiptDetail(id) {
+    return withInvoiceNumbers(await this.getReceipt(id));
+  }
+
+  static async getPaymentDetail(id) {
+    return withInvoiceNumbers(await this.getPayment(id));
+  }
+
   // --- Payments (money out to vendor/contractor/labour) ---
   static async listPayments(page, limit, { partyId, search, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
@@ -248,7 +266,7 @@ class PaymentsService {
   static async getPayment(id) {
     const payment = await Payment.findByPk(id, { include: [{ model: Party, as: 'party' }, { model: PaymentAllocation, as: 'allocations' }] });
     if (!payment) throw new NotFoundError('Payment not found');
-    return withInvoiceNumbers(payment);
+    return payment;
   }
 
   static async createPayment({ factoryId, partyId, paymentDate, modes, allocations }) {

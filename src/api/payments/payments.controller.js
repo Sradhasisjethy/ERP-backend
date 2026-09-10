@@ -12,7 +12,7 @@ const listReceipts = asyncHandler(async (req, res) => {
   sendList(res, req, maskRateFields(data, req), 'Receipts retrieved successfully');
 });
 const getReceipt = asyncHandler(async (req, res) => {
-  const data = await PaymentsService.getReceipt(req.params.id);
+  const data = await PaymentsService.getReceiptDetail(req.params.id);
   await assertCanSeeRecord(req, data, 'Receipt not found');
   sendSuccess(res, maskRateFields(data, req), 'Receipt retrieved successfully');
 });
@@ -32,7 +32,7 @@ const listPayments = asyncHandler(async (req, res) => {
   sendList(res, req, maskRateFields(data, req), 'Payments retrieved successfully');
 });
 const getPayment = asyncHandler(async (req, res) => {
-  const data = await PaymentsService.getPayment(req.params.id);
+  const data = await PaymentsService.getPaymentDetail(req.params.id);
   await assertCanSeeRecord(req, data, 'Payment not found');
   sendSuccess(res, maskRateFields(data, req), 'Payment retrieved successfully');
 });
