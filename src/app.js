@@ -33,6 +33,7 @@ const { qualityRouter } = require('./api/quality/quality.router');
 const { dispatchRouter } = require('./api/dispatch/dispatch.router');
 const { ledgerRouter } = require('./api/ledger/ledger.router');
 const { invoicingRouter } = require('./api/invoicing/invoicing.router');
+const { retailRouter } = require('./api/retail/retail.router');
 const { returnsRouter } = require('./api/returns/returns.router');
 const { paymentsRouter } = require('./api/payments/payments.router');
 const { workforceRouter } = require('./api/workforce/workforce.router');
@@ -45,6 +46,22 @@ const { migrationRouter } = require('./api/migration/migration.router');
 require('./models/index');
 
 const app = express();
+
+/**
+ * How many reverse-proxy hops sit in front of this process.
+ *
+ * Every rate limiter buckets on req.ip. With no trust-proxy setting, a
+ * deployment behind nginx or an ALB sees the proxy's address on every request:
+ * all traffic shares one bucket, so the login limiter locks out the entire
+ * customer after ten failed attempts by anyone, while an attacker gets the same
+ * ten. Setting the real hop count makes req.ip the client again.
+ *
+ * The value is explicit rather than `true`. Express's `true` trusts the whole
+ * X-Forwarded-For chain, which lets a client prepend an address of its choosing
+ * and mint itself a fresh rate-limit bucket per request — express-rate-limit
+ * refuses to start under that setting for exactly this reason.
+ */
+app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
 // Security Middlewares
 app.use(helmet());
@@ -141,6 +158,7 @@ app.use('/api/v1/quality', qualityRouter);
 app.use('/api/v1/dispatch', dispatchRouter);
 app.use('/api/v1/ledger', ledgerRouter);
 app.use('/api/v1/invoices', invoicingRouter);
+app.use('/api/v1/retail', retailRouter); // Mounts /counter-sales (B2C)
 app.use('/api/v1/returns', returnsRouter);
 app.use('/api/v1', paymentsRouter); // Mounts /receipts, /payments
 app.use('/api/v1/workforce', workforceRouter);

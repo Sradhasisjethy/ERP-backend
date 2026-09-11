@@ -25,11 +25,27 @@ const { Uom } = require('../products/uom.model');
  * hundred round trips to paint one table.
  */
 
+/**
+ * Every status this function may interpolate.
+ *
+ * The status is spliced into SQL as a literal because Sequelize will not bind a
+ * parameter inside an aggregate's CASE expression. Today every caller passes a
+ * hardcoded string, so nothing user-supplied can reach it — the allowlist is
+ * here so that stays true if someone later wires a status filter through from a
+ * query parameter, which is the obvious next change to this file.
+ */
+const LOT_STATUSES = ['AVAILABLE', 'CURING', 'QC_HOLD', 'QC_FAILED', 'WITH_CONTRACTOR'];
+
 /** SUM(qtyAvailable) for the lots in one status. */
-const sumWhereStatus = (status, alias) => [
-  fn('SUM', literal(`CASE WHEN "StockLot"."status" = '${status}' THEN "StockLot"."qtyAvailable" ELSE 0 END`)),
-  alias,
-];
+const sumWhereStatus = (status, alias) => {
+  if (!LOT_STATUSES.includes(status)) {
+    throw new Error(`Refusing to build SQL for unknown lot status "${status}"`);
+  }
+  return [
+    fn('SUM', literal(`CASE WHEN "StockLot"."status" = '${status}' THEN "StockLot"."qtyAvailable" ELSE 0 END`)),
+    alias,
+  ];
+};
 
 class StockSummaryService {
   /**

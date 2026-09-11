@@ -71,6 +71,50 @@ const getInvoiceAllocatedAmount = async (invoiceType, invoiceId, { excludeReceip
   return fromReceipts + fromPayments;
 };
 
+/** Per-invoice allocation totals for one parent type, in a single grouped query. */
+const sumAllocationsByInvoice = async (model, alias, invoiceType, invoiceIds, transaction) =>
+  PaymentAllocation.findAll({
+    attributes: [
+      'invoiceId',
+      [fn('COALESCE', fn('SUM', col('PaymentAllocation.allocatedAmountPaise')), 0), 'total'],
+    ],
+    where: { invoiceType, invoiceId: invoiceIds },
+    include: [{ model, as: alias, attributes: [], required: true, where: { status: 'POSTED' } }],
+    group: ['PaymentAllocation.invoiceId'],
+    transaction,
+    raw: true,
+  });
+
+/**
+ * What getInvoiceAllocatedAmount answers for one invoice, answered for a whole
+ * page in two queries.
+ *
+ * This exists so the invoice list cannot disagree with the allocation guard.
+ * The list used to sum `payment_allocations` on its own with no join to the
+ * parent, so a CANCELLED receipt still counted: cancel a receipt — or bounce
+ * the cheque behind it, which cancels it for you — and the invoice went on
+ * reporting itself fully settled. The debt was real, the ledger had reversed
+ * it, and the only screen anyone would collect from showed nothing owing.
+ *
+ * The `required: true` INNER JOIN is the whole point, and it is the same shape
+ * sumAllocations uses above; putting the status test in a LEFT JOIN's ON clause
+ * is what caused the original version of that bug.
+ */
+const getAllocatedAmountsByInvoice = async (invoiceType, invoiceIds, { transaction } = {}) => {
+  const totals = new Map();
+  if (!invoiceIds || !invoiceIds.length) return totals;
+
+  const [fromReceipts, fromPayments] = await Promise.all([
+    sumAllocationsByInvoice(Receipt, 'receipt', invoiceType, invoiceIds, transaction),
+    sumAllocationsByInvoice(Payment, 'payment', invoiceType, invoiceIds, transaction),
+  ]);
+
+  for (const row of [...fromReceipts, ...fromPayments]) {
+    totals.set(row.invoiceId, (totals.get(row.invoiceId) || 0) + Number(row.total || 0));
+  }
+  return totals;
+};
+
 /**
  * Creates a Cheque record for every cheque-mode line on a receipt/payment, so
  * the money can be followed to clearance (FR-M18-7). Modes other than CHEQUE
@@ -152,8 +196,8 @@ class PaymentsService {
     return receipt;
   }
 
-  static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations }) {
-    return sequelize.transaction(async (transaction) => {
+  static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations, transaction: outerTransaction = null }) {
+    const post = async (transaction) => {
       const totalAmountPaise = addPaise(...modes.map((m) => m.amountPaise));
       validateModes(modes, totalAmountPaise);
 
@@ -216,7 +260,25 @@ class PaymentsService {
       });
 
       return this.getReceipt(receipt.id);
-    });
+    };
+
+    /**
+     * Joins the caller's transaction when given one, instead of opening a
+     * second.
+     *
+     * A counter sale posts the invoice, issues the stock and takes the money as
+     * a single unit, and the receipt has to see the invoice that the same
+     * transaction created moments earlier. Sequelize's CLS does bind loose
+     * queries to the active transaction, but a nested `sequelize.transaction()`
+     * here did NOT become a savepoint of it — the inner transaction could not
+     * see the uncommitted invoice and every counter sale with a payment failed
+     * with "Sales invoice not found". Taking the transaction as a parameter
+     * makes the boundary explicit rather than depending on that behaviour.
+     *
+     * Callers that pass nothing are unaffected: they still get their own
+     * transaction, exactly as before.
+     */
+    return outerTransaction ? post(outerTransaction) : sequelize.transaction(post);
   }
 
   static async cancelReceipt(id, reason) {
@@ -356,4 +418,4 @@ class PaymentsService {
   }
 }
 
-module.exports = { PaymentsService, getInvoiceAllocatedAmount };
+module.exports = { PaymentsService, getInvoiceAllocatedAmount, getAllocatedAmountsByInvoice };

@@ -6,7 +6,36 @@ const { Party } = require('../parties/party.model');
 const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { searchWhere } = require('../../utils/pagination');
+const { isoDateInZone, todayInZone } = require('../../utils/dateDisplay');
+const { env } = require('../../config/env');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
+
+/**
+ * A YYYY-MM-DD date a DATEONLY ledger column will actually accept.
+ *
+ * This existed inline as `(bouncedAt || new Date()).toString().slice(0, 10)`,
+ * which produces "Fri Sep 11" — Postgres rejects it with `invalid input syntax
+ * for type date`. Because `bouncedAt` is optional on the bounce schema, that
+ * was the default path: bouncing a cheque with bank charges threw, the whole
+ * transaction rolled back, and the cheque stayed PRESENTED with its receipt
+ * still POSTED. A bounced payment silently remained collected.
+ *
+ * Falls back to today in the application's zone rather than UTC, so a bounce
+ * recorded at 01:00 IST is not dated yesterday.
+ */
+const ledgerDate = (value) => {
+  if (!value) return todayInZone(env.APP_TIMEZONE);
+  if (value instanceof Date) return isoDateInZone(value, env.APP_TIMEZONE);
+
+  const text = String(value).trim();
+  // Already a calendar date (what the API sends): taken as given, so an
+  // explicitly dated bounce is not shifted by a zone conversion it never asked
+  // for.
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? todayInZone(env.APP_TIMEZONE) : isoDateInZone(parsed, env.APP_TIMEZONE);
+};
 
 // A cheque may only move forward through its lifecycle. Encoding it as a map
 // (rather than scattered if-statements) means an invalid transition is
@@ -107,7 +136,7 @@ class ChequeService {
       if (Number(bankChargesPaise) > 0) {
         await LedgerService.postJournal({
           factoryId: cheque.factoryId,
-          entryDate: (bouncedAt || new Date()).toString().slice(0, 10),
+          entryDate: ledgerDate(bouncedAt),
           referenceType: 'Cheque',
           referenceId: cheque.id,
           narration: `Bank charges on bounced cheque ${cheque.chequeNumber}`,

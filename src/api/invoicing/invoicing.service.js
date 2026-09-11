@@ -1,4 +1,3 @@
-const { fn, col } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { searchWhere } = require('../../utils/pagination');
 const { SalesInvoice } = require('./salesInvoice.model');
@@ -13,8 +12,9 @@ const { HsnCode } = require('../products/hsnCode.model');
 const { Uom } = require('../products/uom.model');
 const { Organization } = require('../organization/organization.model');
 const { Party } = require('../parties/party.model');
-const { PaymentAllocation } = require('../payments/paymentAllocation.model');
 const { PartyAddress } = require('../parties/partyAddress.model');
+const { StockLedgerEntry } = require('../inventory/stockLedgerEntry.model');
+const { StockLedgerService } = require('../inventory/stockLedger.service');
 const { determineTax, splitTax } = require('./taxDetermination');
 const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
@@ -49,11 +49,14 @@ class InvoicingService {
    * `openOnly` drops anything already settled, which is what a payment screen
    * wants. Listing screens leave it off and get the full history.
    */
-  static async listInvoices(page, limit, { customerPartyId, status, search, openOnly, baseWhere = {} } = {}) {
+  static async listInvoices(page, limit, { customerPartyId, status, search, openOnly, saleChannel, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
     const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
     if (status) where.status = status;
+    // Which process raised the invoice, not its GST category — the counter
+    // screen lists its own takings. Left off, every invoice comes back.
+    if (saleChannel) where.saleChannel = saleChannel;
 
     if (search) Object.assign(where, searchWhere(search, ['invoiceNumber']));
     const result = await SalesInvoice.findAndCountAll({
@@ -79,13 +82,18 @@ class InvoicingService {
   static async withOutstanding(invoices) {
     if (!invoices.length) return [];
 
-    const allocations = await PaymentAllocation.findAll({
-      attributes: ['invoiceId', [fn('SUM', col('allocatedAmountPaise')), 'allocated']],
-      where: { invoiceType: 'SALES', invoiceId: invoices.map((i) => i.id) },
-      group: ['invoiceId'],
-      raw: true,
-    });
-    const allocatedById = new Map(allocations.map((a) => [a.invoiceId, Number(a.allocated || 0)]));
+    // Shared with the allocation guard in payments.service so the two can never
+    // disagree. Summing payment_allocations directly here — which is what this
+    // did — counted allocations belonging to CANCELLED receipts, so an invoice
+    // whose receipt had been cancelled (or whose cheque had bounced, which
+    // cancels it) kept reporting itself fully settled and never reappeared as
+    // collectable. Required lazily: payments.service imports SalesInvoice, so a
+    // top-level import here would close the cycle.
+    const { getAllocatedAmountsByInvoice } = require('../payments/payments.service');
+    const allocatedById = await getAllocatedAmountsByInvoice(
+      'SALES',
+      invoices.map((i) => i.id)
+    );
 
     return invoices.map((invoice) => {
       const json = invoice.toJSON ? invoice.toJSON() : invoice;
@@ -290,6 +298,26 @@ class InvoicingService {
 
       const challanIds = invoice.challanLinks.map((c) => c.deliveryChallanId);
       await DeliveryChallan.update({ invoiced: false, invoicedAt: null }, { where: { id: challanIds }, transaction });
+
+      // A counter sale issues its stock against the invoice itself — there is
+      // no challan holding those movements, so cancelling here is the only
+      // thing that can put the goods back. Without this the ledger reversal
+      // would undo the money and leave the stock gone: the pallet is on the
+      // shelf, the system says it was sold, and nobody can sell it again.
+      //
+      // A B2B invoice never matches this query. Its SALE_OUT entries carry
+      // referenceType 'DeliveryChallan', and they are reversed by cancelling
+      // the challan, which is correct — cancelling a consolidated invoice must
+      // not un-dispatch goods the customer already has.
+      if (invoice.saleChannel === 'COUNTER') {
+        const stockEntries = await StockLedgerEntry.findAll({
+          where: { referenceType: 'SalesInvoice', referenceId: invoice.id, movementType: 'SALE_OUT' },
+          transaction,
+        });
+        for (const entry of stockEntries) {
+          await StockLedgerService.reverseEntry(entry.id, reason, transaction);
+        }
+      }
 
       await invoice.update({ status: 'CANCELLED', cancelReason: reason }, { transaction });
       return this.getInvoice(id);

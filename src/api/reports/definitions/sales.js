@@ -11,12 +11,16 @@ const { allocatedAmount, paymentStatusExpr } = require('../lib/fragments');
  * absent rather than faked, and each report says so in `limitations`:
  *   - Sales Reference: parties has a SALES_REF type, but no sales document
  *     carries a salesRefPartyId, so sales cannot be attributed to a reference.
- *   - Discount: no sales document or line has a discount field.
+ *   - Discount: sales_invoice_lines now carries discountPercent/discountPaise,
+ *     but only counter sales populate it — the order-driven flow has no
+ *     discount input, so every B2B line is zero. The reports say the figure is
+ *     partial rather than presenting a column that is blank for most of the
+ *     business and reading as "no discounts given".
  */
 
 const LIMITATIONS = [
   'Sales Reference is not shown: no sales document carries a sales-reference party, so sales cannot be attributed to one.',
-  'Discount is not shown: sales invoices and their lines hold no discount field.',
+  'Discount covers counter sales only: invoice lines carry a discount field, but the order-driven sales flow has no way to enter one, so B2B lines are always zero.',
 ];
 
 /** Paid-to-date on an invoice, as one LATERAL so it can be filtered and summed. */
