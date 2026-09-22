@@ -457,14 +457,19 @@ defineReport({
 
     // Which liquid accounts count. Defaults to both, which is what "cash flow"
     // means to the people reading it.
+    // A user-added cash or bank account (accounts."subType") is as liquid as
+    // the system one and counts the same way.
     const codes = p.accountKey === 'CASH' ? [CASH_CODE] : p.accountKey === 'BANK' ? [BANK_CODE] : [CASH_CODE, BANK_CODE];
+    const kinds = p.accountKey === 'CASH' ? ['CASH'] : p.accountKey === 'BANK' ? ['BANK'] : ['CASH', 'BANK'];
     const codeParam = where.param(codes);
-    where.raw(`a."code" = ANY(${codeParam}::text[])`);
+    const kindParam = where.param(kinds);
+    const isLiquid = (alias) => `(${alias}."code" = ANY(${codeParam}::text[]) OR ${alias}."subType" = ANY(${kindParam}::text[]))`;
+    where.raw(isLiquid('a'));
 
     // The true opening balance for a location: everything posted before the
     // window. Without this the first row of a filtered range would open at zero
     // and every closing balance after it would be wrong.
-    const openingClauses = [`je2."factoryId" = je."factoryId"`, `a2."code" = ANY(${codeParam}::text[])`, `jl2."tenantId" = jl."tenantId"`];
+    const openingClauses = [`je2."factoryId" = je."factoryId"`, isLiquid('a2'), `jl2."tenantId" = jl."tenantId"`];
     if (p.dateFrom) openingClauses.push(`je2."entryDate" < ${where.param(p.dateFrom)}::date`);
     else openingClauses.push('FALSE');
 

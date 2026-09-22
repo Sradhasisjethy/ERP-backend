@@ -36,6 +36,42 @@ Account.initScoped(
       allowNull: false,
       defaultValue: false,
     },
+    // Statement placement (accountGroups.js). NULL on system accounts created
+    // before the column existed; accountView() fills it from systemAccounts.js.
+    accountGroup: {
+      type: DataTypes.STRING(40),
+      allowNull: true,
+    },
+    // 'BANK' or 'CASH' — an account money can be received into or paid from.
+    subType: {
+      type: DataTypes.STRING(16),
+      allowNull: true,
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    bankName: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+    accountNumber: {
+      type: DataTypes.STRING(40),
+      allowNull: true,
+    },
+    ifsc: {
+      type: DataTypes.STRING(11),
+      allowNull: true,
+    },
+    branch: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
   },
   {
     sequelize,

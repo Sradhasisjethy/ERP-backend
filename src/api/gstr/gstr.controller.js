@@ -2,6 +2,7 @@ const { asyncHandler } = require('../../core/asyncHandler');
 const { GstrService } = require('./gstr.service');
 const { sendSuccess } = require('../../utils/response');
 const { hasViewRates } = require('../../utils/fieldMasking');
+const { ForbiddenError } = require('../../core/AppError');
 
 // GSTR-1/3B payloads nest money fields inside arrays (b2b/b2c rows, hsnSummary,
 // creditDebitNotes, outwardSupplies/itcAvailable/netTaxPayable) — deeper than
@@ -38,4 +39,25 @@ const getGstr3b = asyncHandler(async (req, res) => {
   sendSuccess(res, hasViewRates(req) ? data : maskGstr3b(data), 'GSTR-3B data retrieved successfully');
 });
 
-module.exports = { getGstr1, getGstr3b, maskGstr1, maskGstr3b };
+/**
+ * The rate summary and GSTR-9 are nothing but amounts; masking every figure
+ * (BR-27) would leave rates and HSN codes with nothing beside them. Without
+ * VIEW_RATES they are refused, with the reason, instead.
+ */
+const assertCanSeeAmounts = (req) => {
+  if (!hasViewRates(req)) throw new ForbiddenError('This return shows amounts — it needs the "View rates and amounts" permission');
+};
+
+const getTaxRateSummary = asyncHandler(async (req, res) => {
+  assertCanSeeAmounts(req);
+  const { factoryId, fromDate, toDate } = req.query;
+  sendSuccess(res, await GstrService.getTaxRateSummary(factoryId, { fromDate, toDate }), 'GST rate summary retrieved successfully');
+});
+
+const getGstr9 = asyncHandler(async (req, res) => {
+  assertCanSeeAmounts(req);
+  const { factoryId, fromDate, toDate } = req.query;
+  sendSuccess(res, await GstrService.getGstr9(factoryId, { fromDate, toDate }), 'GSTR-9 working papers retrieved successfully');
+});
+
+module.exports = { getGstr1, getGstr3b, getTaxRateSummary, getGstr9, maskGstr1, maskGstr3b };

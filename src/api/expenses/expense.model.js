@@ -37,6 +37,13 @@ Expense.initAudited(
       type: DataTypes.BIGINT,
       allowNull: false,
     },
+    // The cash or bank account it was paid from. NULL means the system
+    // Cash-in-Hand or Bank Account for the mode — the only choice there used
+    // to be.
+    accountId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
     paidToPartyId: {
       type: DataTypes.UUID,
       allowNull: true,

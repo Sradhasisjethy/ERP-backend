@@ -13,6 +13,9 @@ const modeBody = z.object({
   chequeNumber: z.string().optional(),
   chequeDate: z.string().optional(),
   bankName: z.string().optional(),
+  // Which of the business's own cash/bank accounts the money went to or came
+  // from. Omit for the system Cash-in-Hand (CASH) or Bank Account (others).
+  accountId: z.string().uuid().optional(),
 });
 
 /**

@@ -48,6 +48,11 @@ SalesReturn.initAudited(
       allowNull: false,
       defaultValue: 'POSTED',
     },
+    subtotalPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    cgstPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    sgstPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    igstPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    // Tax-inclusive, as on an invoice: what the customer is credited.
     totalAmountPaise: {
       type: DataTypes.BIGINT,
       allowNull: false,

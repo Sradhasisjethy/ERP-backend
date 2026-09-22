@@ -12,6 +12,7 @@ const { DocumentNumberingService } = require('../documentSeries/documentNumberin
 const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { Cheque } = require('./cheque.model');
+const { AccountsService } = require('../ledger/accounts.service');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { addPaise } = require('../../utils/money');
 
@@ -21,7 +22,18 @@ const getCurrentFinancialYearId = async (transaction) => {
   return fy.id;
 };
 
-const modeAccountKey = (mode) => (mode === 'CASH' ? 'CASH' : 'BANK');
+/**
+ * The journal line for one tender. With no accountId this is the system Cash
+ * or Bank account, exactly as before banks could be named; with one, it is
+ * that account after checking it is an active money account of the right kind.
+ */
+const modeJournalLine = async (m, side, transaction) => {
+  const target = await AccountsService.resolveMoneyAccount({ accountId: m.accountId, mode: m.mode }, transaction);
+  const ref = target.accountId ? { accountId: target.accountId } : { accountKey: target.accountKey };
+  return side === 'DEBIT'
+    ? { ...ref, debitPaise: m.amountPaise, creditPaise: 0 }
+    : { ...ref, debitPaise: 0, creditPaise: m.amountPaise };
+};
 
 const validateModes = (modes, totalAmountPaise) => {
   if (!modes || !modes.length) throw new ValidationError('At least one payment mode is required');
@@ -133,6 +145,7 @@ const createChequesFor = async ({ modes, factoryId, partyId, direction, date, re
         status: 'ISSUED',
         receiptId: receiptId || null,
         paymentId: paymentId || null,
+        accountId: mode.accountId || null,
       },
       { transaction }
     );
@@ -244,7 +257,7 @@ class PaymentsService {
       }
 
       const journalLines = [{ accountKey: 'ACCOUNTS_RECEIVABLE', partyId: customerPartyId, debitPaise: 0, creditPaise: totalAmountPaise }];
-      for (const m of modes) journalLines.push({ accountKey: modeAccountKey(m.mode), debitPaise: m.amountPaise, creditPaise: 0 });
+      for (const m of modes) journalLines.push(await modeJournalLine(m, 'DEBIT', transaction));
 
       await LedgerService.postJournal({
         factoryId, entryDate: receiptDate, referenceType: 'Receipt', referenceId: receipt.id,
@@ -378,7 +391,7 @@ class PaymentsService {
       }
 
       const journalLines = [{ accountKey: 'ACCOUNTS_PAYABLE', partyId, debitPaise: totalAmountPaise, creditPaise: 0 }];
-      for (const m of modes) journalLines.push({ accountKey: modeAccountKey(m.mode), debitPaise: 0, creditPaise: m.amountPaise });
+      for (const m of modes) journalLines.push(await modeJournalLine(m, 'CREDIT', transaction));
 
       await LedgerService.postJournal({
         factoryId, entryDate: paymentDate, referenceType: 'Payment', referenceId: payment.id,

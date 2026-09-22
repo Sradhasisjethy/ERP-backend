@@ -13,6 +13,7 @@ require('./ageing');
 require('./parties');
 require('./labour');
 require('./finance');
+require('./partyAgeing');
 require('./analytics');
 
 module.exports = require('../lib/registry');

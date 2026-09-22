@@ -36,6 +36,16 @@ const product = async (name, code, type = 'RAW_MATERIAL', extra = {}) =>
   Product.create({ tenantId: T.tenantId, uomId: T.uom.id, name, code, productType: type, ...extra });
 
 /** Receives `qty` into `factory` and returns the GRN body. */
+/**
+ * A date a few days ago, in the business timezone. Curing tests need stock that
+ * is *still* curing whenever the suite runs: pinning them to a fixed date made
+ * them pass only until that date plus the curing period had gone by, and they
+ * began failing on 2026-09-18 with no code change behind it.
+ */
+const { isoDateInZone } = require('../src/utils/dateDisplay');
+const { env } = require('../src/config/env');
+const daysAgo = (days) => isoDateInZone(new Date(Date.now() - days * 86400000), env.APP_TIMEZONE);
+
 const receive = async (factory, p, qty, date = '2026-08-01') => {
   const res = await as(admin).post('/api/v1/purchasing/receipts', {
     factoryId: factory.id, vendorPartyId: T.vendor.id, receiptDate: date,
@@ -278,7 +288,7 @@ describe('B. Balance reconciles to the movement ledger', () => {
 
   it('reports physical stock separately from sellable stock when a lot is still curing', async () => {
     const p = await product('Bal Curing', 'BAL-CURING', 'FINISHED_GOOD', { curingDays: 30 });
-    await receive(T.plantA, p, 70, '2026-08-18'); // still inside its curing window
+    await receive(T.plantA, p, 70, daysAgo(5)); // still inside its 30-day curing window
 
     // The ledger — and therefore physical stock — says 70.
     expect(await ledgerNet(T.plantA.id, p.id)).toBe(70);
@@ -335,7 +345,7 @@ describe('C. Reservation', () => {
 
   it('never reserves curing stock', async () => {
     const p = await product('Rsv C', 'RSV-C', 'FINISHED_GOOD', { curingDays: 30 });
-    await receive(T.plantA, p, 50, '2026-08-18');
+    await receive(T.plantA, p, 50, daysAgo(5)); // still curing
     const a = await atp(T.plantA.id, p.id);
     expect(a.curing).toBe(50);
     expect(a.available).toBe(0);

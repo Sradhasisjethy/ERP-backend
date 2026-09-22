@@ -15,5 +15,7 @@ gstrRouter.use(authenticate, tenantScope, auditContext, enforceFactoryScope);
 
 gstrRouter.get('/gstr1', authorize('GSTR_READ'), validate(schema.gstrQuerySchema, 'query'), controller.getGstr1);
 gstrRouter.get('/gstr3b', authorize('GSTR_READ'), validate(schema.gstrQuerySchema, 'query'), controller.getGstr3b);
+gstrRouter.get('/tax-rate-summary', authorize('GSTR_READ'), validate(schema.gstrQuerySchema, 'query'), controller.getTaxRateSummary);
+gstrRouter.get('/gstr9', authorize('GSTR_READ'), validate(schema.gstrQuerySchema, 'query'), controller.getGstr9);
 
 module.exports = { gstrRouter };

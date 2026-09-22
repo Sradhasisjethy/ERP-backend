@@ -142,7 +142,10 @@ class ChequeService {
           narration: `Bank charges on bounced cheque ${cheque.chequeNumber}`,
           lines: [
             { accountKey: 'FACTORY_EXPENSE', debitPaise: Number(bankChargesPaise), creditPaise: 0 },
-            { accountKey: 'BANK', debitPaise: 0, creditPaise: Number(bankChargesPaise) },
+            // The bank the cheque went through, where one was named.
+            cheque.accountId
+              ? { accountId: cheque.accountId, debitPaise: 0, creditPaise: Number(bankChargesPaise) }
+              : { accountKey: 'BANK', debitPaise: 0, creditPaise: Number(bankChargesPaise) },
           ],
           transaction,
         });

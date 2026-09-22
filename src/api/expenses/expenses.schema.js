@@ -8,6 +8,8 @@ const createExpenseSchema = z.object({
     mode: z.enum(['CASH', 'BANK']),
     amountPaise: z.coerce.number().int().positive(),
     paidToPartyId: z.string().uuid().optional(),
+    // A specific cash or bank account; omit for the system one matching mode.
+    accountId: z.string().uuid().optional(),
     description: z.string().optional(),
   }),
 });

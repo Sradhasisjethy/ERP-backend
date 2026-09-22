@@ -38,6 +38,11 @@ const { returnsRouter } = require('./api/returns/returns.router');
 const { paymentsRouter } = require('./api/payments/payments.router');
 const { workforceRouter } = require('./api/workforce/workforce.router');
 const { expensesRouter } = require('./api/expenses/expenses.router');
+const { fixedAssetsRouter } = require('./api/assets/fixedAssets.router');
+const { quotationsRouter } = require('./api/quotations/quotations.router');
+const { cashRegisterRouter } = require('./api/cashRegister/cashRegister.router');
+const { hrRouter } = require('./api/hr/hr.router');
+const { crmRouter } = require('./api/crm/crm.router');
 const { gstrRouter } = require('./api/gstr/gstr.router');
 const { analyticsRouter } = require('./api/analytics/analytics.router');
 const { reportsRouter } = require('./api/reports/reports.router');
@@ -152,6 +157,8 @@ app.use('/api/v1/inventory', inventoryRouter);
 app.use('/api/v1/purchasing', purchasingRouter);
 app.use('/api/v1/transfers', transferRouter);
 app.use('/api/v1/sales', salesRouter);
+app.use('/api/v1/quotations', quotationsRouter);
+app.use('/api/v1/crm', crmRouter); // Leads and follow-ups
 app.use('/api/v1/bundles', bundlesRouter);
 app.use('/api/v1/production', productionRouter);
 app.use('/api/v1/quality', qualityRouter);
@@ -159,10 +166,13 @@ app.use('/api/v1/dispatch', dispatchRouter);
 app.use('/api/v1/ledger', ledgerRouter);
 app.use('/api/v1/invoices', invoicingRouter);
 app.use('/api/v1/retail', retailRouter); // Mounts /counter-sales (B2C)
+app.use('/api/v1/cash-register', cashRegisterRouter);
 app.use('/api/v1/returns', returnsRouter);
 app.use('/api/v1', paymentsRouter); // Mounts /receipts, /payments
 app.use('/api/v1/workforce', workforceRouter);
+app.use('/api/v1/hr', hrRouter); // Staff leave and attendance (salaried, not daily wage)
 app.use('/api/v1/expenses', expensesRouter);
+app.use('/api/v1/fixed-assets', fixedAssetsRouter);
 app.use('/api/v1/gstr', gstrRouter);
 app.use('/api/v1/analytics', analyticsRouter);
 app.use('/api/v1/reports', reportsRouter);

@@ -284,7 +284,7 @@ const withBundleAccessories = async (lines, onDate, { canOverrideMandatory = fal
  * so a quote can pass the raw form input without creating a party for someone
  * who may yet walk away.
  */
-const priceLines = async ({ factory, customer, lines, partyId = null, onDate = null, checkStock = true, canOverrideMandatory = false, removals = null, transaction = null }) => {
+const priceLines = async ({ factory, customer, lines, partyId = null, onDate = null, checkStock = true, canOverrideMandatory = false, removals = null, transaction = null, priceTypes = ['RETAIL'] }) => {
   // No shipping address: the goods change hands at the counter, so place of
   // supply falls back to the customer's own state. A registered buyer's GSTIN
   // still wins, which is what determineTax already prefers.
@@ -302,7 +302,7 @@ const priceLines = async ({ factory, customer, lines, partyId = null, onDate = n
   const lineInputs = [];
   for (const line of allLines) {
     const quantity = Number(line.quantity);
-    if (!(quantity > 0)) throw new ValidationError('Every counter sale line needs a positive quantity');
+    if (!(quantity > 0)) throw new ValidationError('Every line needs a positive quantity');
 
     const product = await Product.findByPk(line.productId, {
       include: [{ model: HsnCode, as: 'hsnCode' }],
@@ -313,10 +313,13 @@ const priceLines = async ({ factory, customer, lines, partyId = null, onDate = n
     // An explicit rate from the counter wins; otherwise the RETAIL price list,
     // then the product's own selling price. Selling at zero because nobody
     // priced the item is the failure mode worth being loud about.
-    const ratePaise =
-      line.ratePaise !== undefined && line.ratePaise !== null
-        ? Number(line.ratePaise)
-        : await PricingService.resolveRate(line.productId, { partyId, priceType: 'RETAIL' });
+    // `priceTypes` is tried in order. The counter only ever asks for RETAIL; a
+    // quotation to a trade customer tries WHOLESALE first and falls back.
+    let ratePaise = line.ratePaise !== undefined && line.ratePaise !== null ? Number(line.ratePaise) : null;
+    for (const priceType of priceTypes) {
+      if (ratePaise !== null && ratePaise !== undefined) break;
+      ratePaise = await PricingService.resolveRate(line.productId, { partyId, priceType });
+    }
 
     if (ratePaise === null || ratePaise === undefined) {
       throw new ValidationError(
@@ -613,4 +616,4 @@ class CounterSaleService {
   }
 }
 
-module.exports = { CounterSaleService, resolveCustomer, assertFreeStock };
+module.exports = { CounterSaleService, resolveCustomer, assertFreeStock, priceLines };

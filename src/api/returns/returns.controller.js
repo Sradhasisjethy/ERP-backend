@@ -1,5 +1,5 @@
 const { asyncHandler } = require('../../core/asyncHandler');
-const { scopeListToFactories } = require('../../core/salesScope');
+const { scopeListToFactories, assertCanUseFactory } = require('../../core/salesScope');
 const { ReturnsService } = require('./returns.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
@@ -14,6 +14,24 @@ const listSalesReturns = asyncHandler(async (req, res) => {
 const getSalesReturn = asyncHandler(async (req, res) => {
   sendSuccess(res, maskRateFields(await ReturnsService.getSalesReturn(req.params.id), req), 'Sales return retrieved successfully');
 });
+/** What a customer can send back, for the return screen to pick from. */
+const returnableItems = asyncHandler(async (req, res) => {
+  const { factoryId, customerPartyId } = req.query;
+  await assertCanUseFactory(req, factoryId);
+  const data = await ReturnsService.returnableItems({ factoryId, customerPartyId });
+  sendSuccess(
+    res,
+    {
+      ...data,
+      invoices: data.invoices.map((invoice) => ({
+        ...maskRateFields(invoice, req, ['totalPaise']),
+        lines: maskRateFields(invoice.lines, req, ['ratePaise']),
+      })),
+    },
+    'Returnable items retrieved successfully'
+  );
+});
+
 const createSalesReturn = asyncHandler(async (req, res) => {
   sendSuccess(res, await ReturnsService.createSalesReturn(req.body), 'Sales return posted successfully', 201);
 });
@@ -73,6 +91,7 @@ const cancelDebitNote = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  returnableItems,
   listSalesReturns, getSalesReturn, createSalesReturn, cancelSalesReturn,
   listPurchaseReturns, getPurchaseReturn, createPurchaseReturn, cancelPurchaseReturn,
   listCreditNotes, getCreditNote, createCreditNote, cancelCreditNote,

@@ -13,6 +13,8 @@ const returnsRouter = Router();
 // BR-29: refuse any request naming a factory this user cannot access.
 returnsRouter.use(authenticate, tenantScope, auditContext, enforceFactoryScope);
 
+// Fixed path before /sales-returns/:id.
+returnsRouter.get('/returnable', authorize('RETURN_READ'), validate(schema.returnableQuerySchema, 'query'), controller.returnableItems);
 returnsRouter.get('/sales-returns', authorize('RETURN_READ'), validate(schema.listQuerySchema, 'query'), controller.listSalesReturns);
 returnsRouter.post('/sales-returns', authorize('RETURN_CREATE'), validate(schema.createSalesReturnSchema), controller.createSalesReturn);
 returnsRouter.get('/sales-returns/:id', authorize('RETURN_READ'), controller.getSalesReturn);
