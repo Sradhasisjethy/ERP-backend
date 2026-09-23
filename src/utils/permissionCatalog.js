@@ -127,6 +127,8 @@ const PERMISSION_CATALOG = Object.freeze([
           },
         ],
       },
+      { key: 'LEAD', label: 'Leads & Follow-ups', actions: CRUD },
+      { key: 'QUOTATION', label: 'Quotations', actions: CRUD },
       { key: 'DISPATCH', label: 'Delivery Challans', actions: CRUD },
       { key: 'INVOICE', label: 'Sales Invoices', actions: CRUD },
       { key: 'RETURN', label: 'Returns & Credit/Debit Notes', actions: CRUD },
@@ -188,6 +190,15 @@ const PERMISSION_CATALOG = Object.freeze([
     resources: [
       { key: 'CONTRACTOR', label: 'Contractors', actions: CRUD },
       { key: 'LABOUR', label: 'Labour & Attendance', actions: CRUD },
+      {
+        key: 'LEAVE',
+        label: 'Staff Leave',
+        actions: CRUD,
+        grants: [
+          { code: 'LEAVE_APPROVE', label: 'Approve leave', description: 'Deliberately separate from applying for it, and never for your own request.' },
+        ],
+      },
+      { key: 'STAFF_ATTENDANCE', label: 'Staff Attendance', actions: CRUD },
     ],
   },
   {
@@ -197,8 +208,12 @@ const PERMISSION_CATALOG = Object.freeze([
       { key: 'RECEIPT', label: 'Receipts', actions: CRUD },
       { key: 'PAYMENT', label: 'Payments', actions: CRUD },
       { key: 'EXPENSE', label: 'Expenses', actions: CRUD },
+      { key: 'CASH_REGISTER', label: 'Counter Cash Register', actions: CRUD },
       { key: 'FINANCE_ADJUSTMENT', label: 'Finance Adjustments', actions: CRUD },
-      { key: 'LEDGER', label: 'Ledger & Trial Balance', actions: READ_ONLY },
+      { key: 'LEDGER', label: 'Ledger, Trial Balance & Financial Statements', actions: READ_ONLY },
+      { key: 'ACCOUNT', label: 'Chart of Accounts & Bank Accounts', actions: CRUD },
+      { key: 'JOURNAL', label: 'Journal & Contra Vouchers', actions: CRUD },
+      { key: 'FIXED_ASSET', label: 'Fixed Assets & Depreciation', actions: CRUD },
       { key: 'GSTR', label: 'GST Returns', actions: READ_ONLY },
       {
         key: 'RATES',

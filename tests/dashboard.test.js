@@ -8,6 +8,11 @@ const {
   MixDesign, MixDesignLine, Party, AdGroup, AdGroupMember, UserFactory,
 } = require('../src/models/index');
 const { WebPermissions } = require('../src/utils/constants');
+// The same helper the dashboard resolves "today" with. Seeding a UTC date
+// here made this test fail between 00:00 and 05:30 IST and pass the rest of
+// the day: at UTC+05:30 the UTC date is still yesterday, so the entry landed
+// on a day the dashboard was no longer asking about.
+const { todayInZone } = require('../src/utils/dateDisplay');
 
 const PASSWORD = 'password123';
 let adminCookie;
@@ -76,7 +81,7 @@ beforeAll(async () => {
     .send({ factoryId: factoryA.id, vendorPartyId: vendor.id, receiptDate: '2026-08-01', lines: [{ productId: rawMaterial.id, receivedQty: 500, ratePaise: 5000 }] });
 
   await request(app).post('/api/v1/production/entries').set('Cookie', adminCookie)
-    .send({ factoryId: factoryA.id, productId: finishedGood.id, productionDate: new Date().toISOString().slice(0, 10), goodQty: 40, rejectedQty: 10 });
+    .send({ factoryId: factoryA.id, productId: finishedGood.id, productionDate: todayInZone(), goodQty: 40, rejectedQty: 10 });
 });
 
 afterAll(async () => {

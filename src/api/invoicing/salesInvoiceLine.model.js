@@ -34,6 +34,24 @@ SalesInvoiceLine.initAudited(
       type: DataTypes.BIGINT,
       allowNull: false,
     },
+    /**
+     * Discount given at the time of supply, as entered and as it came to.
+     *
+     * Both are stored because tax is charged on the discounted value
+     * (s.15(3)(a) CGST Act) and the invoice has to be able to show that
+     * working: gross, less discount, taxable. Recomputing the amount later from
+     * the percentage would also drift once rounding is involved.
+     */
+    discountPercent: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
+    discountPaise: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+    },
     gstRatePercent: {
       type: DataTypes.DECIMAL(5, 2),
       allowNull: false,

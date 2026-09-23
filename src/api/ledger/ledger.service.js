@@ -52,19 +52,26 @@ class LedgerService {
       throw new ValidationError(`Journal is not balanced: debits ${totalDebitPaise} paise, credits ${totalCreditPaise} paise`);
     }
 
-    // BR-21: factory cash balance may not go negative without override.
+    // BR-21: factory cash balance may not go negative without override. Checked
+    // per cash account — the system Cash-in-Hand and any cash account a user
+    // has added (a site's petty-cash box is as physical as the main one).
     const cashAccount = await this.getOrCreateSystemAccount('CASH', transaction);
-    const cashCredit = resolvedLines
-      .filter((l) => l.accountId === cashAccount.id)
-      .reduce((sum, l) => sum + (l.creditPaise || 0) - (l.debitPaise || 0), 0);
-    if (cashCredit > 0) {
+    const netCashCredit = new Map();
+    for (const l of resolvedLines) {
+      const isCash = l.accountId === cashAccount.id || l.account.subType === 'CASH';
+      if (!isCash) continue;
+      netCashCredit.set(l.accountId, (netCashCredit.get(l.accountId) || 0) + (l.creditPaise || 0) - (l.debitPaise || 0));
+    }
+    for (const [cashAccountId, cashCredit] of netCashCredit) {
+      if (cashCredit <= 0) continue;
       const factory = await Factory.findByPk(factoryId, { transaction });
-      const currentBalance = await this.getAccountBalance(cashAccount.id, factoryId, transaction);
+      const currentBalance = await this.getAccountBalance(cashAccountId, factoryId, transaction);
       if (currentBalance - cashCredit < 0 && !(factory && factory.allowNegativeCash)) {
-        throw new ValidationError(`Insufficient cash at this factory: balance ${currentBalance} paise, requested ${cashCredit} paise`);
+        const label = cashAccountId === cashAccount.id ? 'cash' : `cash in ${resolvedLines.find((l) => l.accountId === cashAccountId).account.name}`;
+        throw new ValidationError(`Insufficient ${label} at this factory: balance ${currentBalance} paise, requested ${cashCredit} paise`);
       }
       if (currentBalance - cashCredit < 0) {
-        logger.warn({ message: 'Negative cash event', factoryId, resultingBalance: currentBalance - cashCredit });
+        logger.warn({ message: 'Negative cash event', factoryId, accountId: cashAccountId, resultingBalance: currentBalance - cashCredit });
       }
     }
 
@@ -94,14 +101,22 @@ class LedgerService {
     });
   }
 
-  /** BR-05/BR-33-style correction: a new balanced journal with debits/credits swapped, referencing the original. Never edits the original. */
-  static async reverseJournal(journalEntryId, reason, transaction) {
+  /**
+   * BR-05/BR-33-style correction: a new balanced journal with debits/credits
+   * swapped, referencing the original. Never edits the original.
+   *
+   * `entryDate` defaults to today, which is right for correcting a document
+   * after the fact. A caller undoing something that should never have existed
+   * on any date (a cancelled depreciation run) passes the original's date so
+   * statements for past dates stop showing it.
+   */
+  static async reverseJournal(journalEntryId, reason, transaction, entryDate = null) {
     const original = await this.getJournalEntry(journalEntryId, transaction);
     if (!original) throw new NotFoundError('Journal entry not found');
 
     const reversed = await this.postJournal({
       factoryId: original.factoryId,
-      entryDate: new Date().toISOString().slice(0, 10),
+      entryDate: entryDate || new Date().toISOString().slice(0, 10),
       referenceType: original.referenceType,
       referenceId: original.referenceId,
       narration: reason,
@@ -292,8 +307,10 @@ class LedgerService {
    *    that happened before `from`. The opening balance is now the account's
    *    real position on the day the window starts.
    */
-  static async getCashBook(factoryId, { from, to, accountKey = 'CASH' } = {}) {
-    const account = await this.getOrCreateSystemAccount(accountKey);
+  static async getCashBook(factoryId, { from, to, accountKey = 'CASH', accountId } = {}) {
+    // A named account (one bank among several) wins over the system key.
+    const account = accountId ? await Account.findByPk(accountId) : await this.getOrCreateSystemAccount(accountKey);
+    if (!account) throw new NotFoundError('Account not found');
 
     const openingBalancePaise = from
       ? await this.getAccountBalanceBefore(account.id, factoryId, from)

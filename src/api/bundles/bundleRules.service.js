@@ -6,6 +6,8 @@ const { OverrideReasonCode } = require('./overrideReasonCode.model');
 const { Product } = require('../products/product.model');
 const { Uom } = require('../products/uom.model');
 const { assertUsableProducts } = require('../../core/masterGuards');
+const { todayInZone } = require('../../utils/dateDisplay');
+const { SettingsService } = require('../settings/settings.service');
 const { NotFoundError, ValidationError, ConflictError } = require('../../core/AppError');
 const { toOrder } = require('../../utils/pagination');
 
@@ -305,13 +307,53 @@ class BundleRulesService {
   }
 
   /** Takes a rule out of use without deleting what it said. */
+  /**
+   * Retires a version.
+   *
+   * The end date was `new Date().toISOString().slice(0, 10)` — the UTC date,
+   * stamped regardless of what else had happened to the lineage. Two things
+   * went wrong with that. At UTC+05:30 it is yesterday until 05:30 local. And
+   * a version that had already been replaced was still closed at *today*, so
+   * BND-RCC-600 v1 ended up claiming 04 Sep -> 05 Sep while v2 held the 4th
+   * and v3 the 5th: three versions of one bundle in force on the same day,
+   * which makes "which accessories apply" unanswerable.
+   *
+   * The close date is now the earlier of today and the day before the next
+   * version starts, and never before this version's own start — an archived
+   * rule should describe a window it actually held.
+   */
   static async archive(id) {
-    const rule = await BundleRule.findByPk(id);
-    if (!rule) throw new NotFoundError('Bundle rule not found');
-    if (rule.status === 'ARCHIVED') return this.get(id);
+    return sequelize.transaction(async (transaction) => {
+      const rule = await BundleRule.findByPk(id, { transaction });
+      if (!rule) throw new NotFoundError('Bundle rule not found');
+      if (rule.status === 'ARCHIVED') return this.get(id);
 
-    await rule.update({ status: 'ARCHIVED', effectiveTo: rule.effectiveTo || new Date().toISOString().slice(0, 10) });
-    return this.get(id);
+      const { timeZone } = await SettingsService.getDisplayPreferences();
+      let closesOn = rule.effectiveTo || todayInZone(timeZone);
+
+      // A successor in the same lineage already owns everything from its own
+      // start date onwards.
+      const successor = await BundleRule.findOne({
+        where: {
+          code: rule.code,
+          id: { [Op.ne]: rule.id },
+          status: { [Op.in]: ['ACTIVE', 'SUPERSEDED'] },
+          effectiveFrom: { [Op.gt]: rule.effectiveFrom },
+        },
+        order: [['effectiveFrom', 'ASC']],
+        transaction,
+      });
+      if (successor) {
+        const handover = this._dayBefore(successor.effectiveFrom);
+        if (handover < closesOn) closesOn = handover;
+      }
+
+      // Never a window that ends before it began.
+      if (closesOn < rule.effectiveFrom) closesOn = rule.effectiveFrom;
+
+      await rule.update({ status: 'ARCHIVED', effectiveTo: closesOn }, { transaction });
+      return this.get(id);
+    });
   }
 }
 

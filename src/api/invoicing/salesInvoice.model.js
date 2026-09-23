@@ -89,6 +89,31 @@ SalesInvoice.initAudited(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    /**
+     * Which process raised this invoice, not which GST category it falls in.
+     *
+     * B2B invoices are built from dispatched challans against a sales order;
+     * COUNTER ones are raised at the point of sale with the stock issued in the
+     * same transaction. GSTR-1 still splits B2B from B2C on whether the
+     * customer carries a GSTIN, and must — a registered dealer buying at the
+     * counter is a B2B supply. Nothing in gstr.service reads this column.
+     */
+    saleChannel: {
+      type: DataTypes.ENUM('B2B', 'COUNTER'),
+      allowNull: false,
+      defaultValue: 'B2B',
+    },
+    // Transport details for a counter sale the customer is not carrying away
+    // themselves. A tax invoice is a valid document for goods in movement, so
+    // these ride here rather than on a second delivery challan.
+    vehicleNumber: {
+      type: DataTypes.STRING(32),
+      allowNull: true,
+    },
+    driverName: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   },
   {
     sequelize,

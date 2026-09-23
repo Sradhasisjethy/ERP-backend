@@ -8,6 +8,11 @@ const { CreditNote } = require('./creditNote.model');
 const { DebitNote } = require('./debitNote.model');
 const { Product } = require('../products/product.model');
 const { Party } = require('../parties/party.model');
+const { SalesInvoice } = require('../invoicing/salesInvoice.model');
+const { SalesInvoiceLine } = require('../invoicing/salesInvoiceLine.model');
+const { determineTax, splitTax } = require('../invoicing/taxDetermination');
+const { HsnCode } = require('../products/hsnCode.model');
+const { Factory } = require('../factory/factory.model');
 const { StockLedgerEntry } = require('../inventory/stockLedgerEntry.model');
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
@@ -16,6 +21,23 @@ const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { addPaise } = require('../../utils/money');
+
+const RETURN_MONEY = ['subtotalPaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'totalAmountPaise'];
+const RETURN_LINE_MONEY = ['ratePaise', 'taxableAmountPaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'lineTotalPaise'];
+
+/**
+ * Money as numbers, not the strings Postgres returns for BIGINT — a list row
+ * and a detail read must not describe the same field two different ways.
+ */
+const numbers = (obj, keys) => Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, Number(obj[k])]));
+const salesReturnView = (record) => {
+  const json = typeof record.toJSON === 'function' ? record.toJSON() : record;
+  return {
+    ...json,
+    ...numbers(json, RETURN_MONEY),
+    lines: (json.lines || []).map((line) => ({ ...line, ...numbers(line, RETURN_LINE_MONEY), quantity: Number(line.quantity) })),
+  };
+};
 
 const getCurrentFinancialYearId = async (transaction) => {
   const fy = await FinancialYear.findOne({ where: { isCurrent: true }, transaction });
@@ -35,11 +57,12 @@ class ReturnsService {
     const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
     if (search) Object.assign(where, searchWhere(search, ['returnNumber', 'reason']));
-    return SalesReturn.findAndCountAll({
-      where, limit, offset,
+    const { rows, count } = await SalesReturn.findAndCountAll({
+      where, limit, offset, distinct: true,
       include: [{ model: Party, as: 'customer' }, { model: SalesReturnLine, as: 'lines', include: [{ model: Product, as: 'product' }] }],
       order: [['returnDate', 'DESC']],
     });
+    return { rows: rows.map(salesReturnView), count };
   }
 
   static async getSalesReturn(id) {
@@ -47,24 +70,246 @@ class ReturnsService {
       include: [{ model: Party, as: 'customer' }, { model: SalesReturnLine, as: 'lines', include: [{ model: Product, as: 'product' }] }],
     });
     if (!record) throw new NotFoundError('Sales return not found');
-    return record;
+    return salesReturnView(record);
+  }
+
+  /**
+   * What this customer bought at this factory, and how much of each line can
+   * still come back.
+   *
+   * Recording a return by typing a product, a quantity and a rate invites three
+   * mistakes at once: goods that were never sold, more than was sold, and a
+   * rate the customer never paid. This gives the screen the invoices to pick
+   * from instead, with what is left returnable on every line.
+   *
+   * Only a return that names its invoice can be attributed to a line. Anything
+   * returned without one is reported separately rather than guessed at, so no
+   * figure here is quietly wrong.
+   */
+  static async returnableItems({ factoryId, customerPartyId, limit = 25 }) {
+    const invoices = await SalesInvoice.findAll({
+      where: { factoryId, customerPartyId, status: 'POSTED' },
+      include: [{ model: SalesInvoiceLine, as: 'lines', include: [{ model: Product, as: 'product', attributes: ['id', 'name', 'code'] }] }],
+      order: [['invoiceDate', 'DESC'], ['createdAt', 'DESC']],
+      limit,
+    });
+
+    const posted = await SalesReturn.findAll({
+      where: { factoryId, customerPartyId, status: 'POSTED' },
+      include: [{ model: SalesReturnLine, as: 'lines' }],
+    });
+
+    const returnedByInvoiceProduct = new Map();
+    const unlinked = new Map();
+    for (const salesReturn of posted) {
+      for (const line of salesReturn.lines || []) {
+        const qty = Number(line.quantity);
+        if (salesReturn.salesInvoiceId) {
+          const key = `${salesReturn.salesInvoiceId}|${line.productId}`;
+          returnedByInvoiceProduct.set(key, (returnedByInvoiceProduct.get(key) || 0) + qty);
+        } else {
+          unlinked.set(line.productId, (unlinked.get(line.productId) || 0) + qty);
+        }
+      }
+    }
+
+    const round4 = (n) => Math.round(n * 10000) / 10000;
+
+    const rows = invoices.map((invoice) => {
+      const lines = (invoice.lines || []).map((line) => {
+        const soldQty = Number(line.quantity);
+        const returnedQty = returnedByInvoiceProduct.get(`${invoice.id}|${line.productId}`) || 0;
+        return {
+          salesInvoiceLineId: line.id,
+          productId: line.productId,
+          productName: line.product?.name || null,
+          productCode: line.product?.code || null,
+          hsnCode: line.hsnCode,
+          soldQty,
+          ratePaise: Number(line.ratePaise),
+          // The invoice's own figure for the line, so "rate" can never be read
+          // as "line total" on the way back.
+          soldValuePaise: Number(line.taxableAmountPaise),
+          discountPercent: Number(line.discountPercent || 0),
+          gstRatePercent: Number(line.gstRatePercent || 0),
+          returnedQty: round4(returnedQty),
+          returnableQty: round4(Math.max(soldQty - returnedQty, 0)),
+        };
+      });
+      return {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.invoiceDate,
+        totalPaise: Number(invoice.totalPaise),
+        lines,
+        fullyReturned: lines.length > 0 && lines.every((l) => l.returnableQty === 0),
+      };
+    });
+
+    const unlinkedProducts = unlinked.size
+      ? await Product.findAll({ where: { id: [...unlinked.keys()] }, attributes: ['id', 'name'] })
+      : [];
+    return {
+      invoices: rows,
+      unlinkedReturns: unlinkedProducts.map((product) => ({
+        productId: product.id,
+        productName: product.name,
+        quantity: round4(unlinked.get(product.id)),
+      })),
+    };
+  }
+
+  /**
+   * Refuses a return of more than an invoice still has outstanding.
+   *
+   * Only runs when the return names its invoice. A return recorded without one
+   * (goods sold before go-live, say) has nothing to check against, and leaving
+   * it unchecked is honest where inventing a check would not be.
+   */
+  static async assertWithinInvoice({ salesInvoiceId, factoryId, customerPartyId, lines, transaction }) {
+    const invoice = await SalesInvoice.findByPk(salesInvoiceId, {
+      include: [{ model: SalesInvoiceLine, as: 'lines' }],
+      transaction,
+    });
+    if (!invoice) throw new NotFoundError('Sales invoice not found');
+    if (invoice.customerPartyId !== customerPartyId) throw new ValidationError('That invoice belongs to a different customer');
+    if (invoice.factoryId !== factoryId) throw new ValidationError('That invoice was raised at a different factory');
+    if (invoice.status !== 'POSTED') {
+      throw new ValidationError(`Invoice ${invoice.invoiceNumber} is ${String(invoice.status).toLowerCase()} — nothing can be returned against it`);
+    }
+
+    const soldByProduct = new Map();
+    for (const line of invoice.lines || []) {
+      soldByProduct.set(line.productId, (soldByProduct.get(line.productId) || 0) + Number(line.quantity));
+    }
+
+    const earlier = await SalesReturn.findAll({
+      where: { salesInvoiceId, status: 'POSTED' },
+      include: [{ model: SalesReturnLine, as: 'lines' }],
+      transaction,
+    });
+    const returnedByProduct = new Map();
+    for (const salesReturn of earlier) {
+      for (const line of salesReturn.lines || []) {
+        returnedByProduct.set(line.productId, (returnedByProduct.get(line.productId) || 0) + Number(line.quantity));
+      }
+    }
+
+    for (const line of lines) {
+      const sold = soldByProduct.get(line.productId) || 0;
+      const product = await Product.findByPk(line.productId, { attributes: ['name'], transaction });
+      const name = product?.name || 'That item';
+      if (sold === 0) {
+        throw new ValidationError(`${name} is not on invoice ${invoice.invoiceNumber}`);
+      }
+      const left = sold - (returnedByProduct.get(line.productId) || 0);
+      // A hair of tolerance: quantities are DECIMAL(14,4) and a browser can
+      // hand back 2.0999999 for 2.1.
+      if (Number(line.quantity) > left + 1e-9) {
+        throw new ValidationError(
+          `Only ${left} of ${name} can still be returned against ${invoice.invoiceNumber} — ${sold} sold, ${sold - left} already returned`
+        );
+      }
+    }
+  }
+
+  /**
+   * Prices a sales return the way the invoice priced the sale.
+   *
+   * Goods that were sold with GST come back with it: the customer is credited
+   * the tax too, and the output tax the business no longer owes is reversed
+   * (s.34 CGST Act). The rate comes from the invoice line where the return
+   * names its invoice, so a rate that has changed since cannot rewrite history;
+   * otherwise it falls back to the product's HSN rate.
+   *
+   * CGST/SGST vs IGST follows the same determination as the invoice, from the
+   * factory and the customer — a return of an inter-state sale reverses IGST.
+   */
+  static async priceReturnLines({ factoryId, customerPartyId, salesInvoiceId, lines, transaction }) {
+    const [factory, customer] = await Promise.all([
+      Factory.findByPk(factoryId, { transaction }),
+      Party.findByPk(customerPartyId, { transaction }),
+    ]);
+    if (!factory) throw new NotFoundError('Factory not found');
+    if (!customer) throw new NotFoundError('Customer not found');
+
+    // The rates the goods actually went out at, when there is an invoice.
+    const invoiceRates = new Map();
+    if (salesInvoiceId) {
+      const invoiceLines = await SalesInvoiceLine.findAll({ where: { salesInvoiceId }, transaction });
+      for (const line of invoiceLines) invoiceRates.set(line.productId, Number(line.gstRatePercent || 0));
+    }
+
+    const rates = [];
+    for (const line of lines) {
+      let gstRatePercent = invoiceRates.get(line.productId);
+      if (gstRatePercent === undefined) {
+        const product = await Product.findByPk(line.productId, { include: [{ model: HsnCode, as: 'hsnCode' }], transaction });
+        if (!product) throw new NotFoundError(`Product ${line.productId} not found`);
+        gstRatePercent = Number(product.hsnCode?.gstRatePercent || 0);
+      }
+      rates.push(gstRatePercent);
+    }
+
+    // Place of supply decides CGST+SGST against IGST, and is only needed when
+    // there is tax to split. Goods with no GST rate never needed it on the way
+    // out either, so a return of them must not demand it now.
+    const isInterState = rates.some((rate) => rate > 0)
+      ? determineTax({ factory, shippingAddress: null, customer }).isInterState
+      : false;
+
+    const priced = [];
+    for (const [index, line] of lines.entries()) {
+      const gstRatePercent = rates[index];
+      const taxableAmountPaise = Math.round(Number(line.quantity) * Number(line.ratePaise));
+      const taxPaise = Math.round((taxableAmountPaise * gstRatePercent) / 100);
+      const split = splitTax(taxPaise, isInterState);
+      priced.push({
+        ...line,
+        gstRatePercent,
+        taxableAmountPaise,
+        ...split,
+        lineTotalPaise: taxableAmountPaise + taxPaise,
+      });
+    }
+
+    const sum = (key) => addPaise(...priced.map((l) => l[key]));
+    const totals = {
+      subtotalPaise: sum('taxableAmountPaise'),
+      cgstPaise: sum('cgstPaise'),
+      sgstPaise: sum('sgstPaise'),
+      igstPaise: sum('igstPaise'),
+    };
+    return {
+      lines: priced,
+      totals: { ...totals, totalAmountPaise: totals.subtotalPaise + totals.cgstPaise + totals.sgstPaise + totals.igstPaise },
+    };
   }
 
   static async createSalesReturn({ factoryId, customerPartyId, salesInvoiceId, returnDate, reason, lines }) {
     if (!lines || !lines.length) throw new ValidationError('A sales return requires at least one line');
 
     return sequelize.transaction(async (transaction) => {
+      if (salesInvoiceId) {
+        await this.assertWithinInvoice({ salesInvoiceId, factoryId, customerPartyId, lines, transaction });
+      }
+
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('SALES_RETURN', { factoryId, financialYearId, prefix: 'SR', transaction });
 
-      const totalAmountPaise = addPaise(...lines.map((l) => l.quantity * l.ratePaise));
+      const priced = await this.priceReturnLines({ factoryId, customerPartyId, salesInvoiceId, lines, transaction });
+      const { subtotalPaise, cgstPaise, sgstPaise, igstPaise, totalAmountPaise } = priced.totals;
+
       const salesReturn = await SalesReturn.create(
-        { factoryId, returnNumber: documentNumber, customerPartyId, salesInvoiceId: salesInvoiceId || null, returnDate, reason, totalAmountPaise },
+        {
+          factoryId, returnNumber: documentNumber, customerPartyId, salesInvoiceId: salesInvoiceId || null,
+          returnDate, reason, subtotalPaise, cgstPaise, sgstPaise, igstPaise, totalAmountPaise,
+        },
         { transaction }
       );
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+      for (let i = 0; i < priced.lines.length; i++) {
+        const line = priced.lines[i];
         const seq = String(i + 1).padStart(2, '0');
         const lot = await StockLedgerService.createLot({
           factoryId, productId: line.productId, lotNumber: `${documentNumber}-${seq}`,
@@ -75,7 +320,12 @@ class ReturnsService {
           quantity: line.quantity, referenceType: 'SalesReturn', referenceId: salesReturn.id, transaction,
         });
         await SalesReturnLine.create(
-          { salesReturnId: salesReturn.id, productId: line.productId, quantity: line.quantity, ratePaise: line.ratePaise, createdLotId: lot.id },
+          {
+            salesReturnId: salesReturn.id, productId: line.productId, quantity: line.quantity, ratePaise: line.ratePaise,
+            gstRatePercent: line.gstRatePercent, taxableAmountPaise: line.taxableAmountPaise,
+            cgstPaise: line.cgstPaise, sgstPaise: line.sgstPaise, igstPaise: line.igstPaise,
+            lineTotalPaise: line.lineTotalPaise, createdLotId: lot.id,
+          },
           { transaction }
         );
       }
@@ -83,8 +333,14 @@ class ReturnsService {
       await LedgerService.postJournal({
         factoryId, entryDate: returnDate, referenceType: 'SalesReturn', referenceId: salesReturn.id,
         narration: `Sales return ${documentNumber}`,
+        // The sale debited the customer with tax and credited GST Output; the
+        // return undoes both halves, so the customer is credited the
+        // tax-inclusive amount and the output liability comes back down.
         lines: [
-          { accountKey: 'SALES_RETURN', debitPaise: totalAmountPaise, creditPaise: 0 },
+          { accountKey: 'SALES_RETURN', debitPaise: subtotalPaise, creditPaise: 0 },
+          ...(cgstPaise ? [{ accountKey: 'GST_OUTPUT_CGST', debitPaise: cgstPaise, creditPaise: 0 }] : []),
+          ...(sgstPaise ? [{ accountKey: 'GST_OUTPUT_SGST', debitPaise: sgstPaise, creditPaise: 0 }] : []),
+          ...(igstPaise ? [{ accountKey: 'GST_OUTPUT_IGST', debitPaise: igstPaise, creditPaise: 0 }] : []),
           { accountKey: 'ACCOUNTS_RECEIVABLE', partyId: customerPartyId, debitPaise: 0, creditPaise: totalAmountPaise },
         ],
         transaction,
@@ -108,7 +364,10 @@ class ReturnsService {
         });
       }
       await reverseJournalFor('SalesReturn', record.id, reason, transaction);
-      await record.update({ status: 'CANCELLED' }, { transaction });
+      // getSalesReturn returns a plain view (money as numbers), so the row
+      // itself is loaded here to be updated.
+      const row = await SalesReturn.findByPk(id, { transaction });
+      await row.update({ status: 'CANCELLED' }, { transaction });
       return this.getSalesReturn(id);
     });
   }

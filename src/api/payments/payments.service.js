@@ -12,6 +12,7 @@ const { DocumentNumberingService } = require('../documentSeries/documentNumberin
 const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { Cheque } = require('./cheque.model');
+const { AccountsService } = require('../ledger/accounts.service');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { addPaise } = require('../../utils/money');
 
@@ -21,7 +22,18 @@ const getCurrentFinancialYearId = async (transaction) => {
   return fy.id;
 };
 
-const modeAccountKey = (mode) => (mode === 'CASH' ? 'CASH' : 'BANK');
+/**
+ * The journal line for one tender. With no accountId this is the system Cash
+ * or Bank account, exactly as before banks could be named; with one, it is
+ * that account after checking it is an active money account of the right kind.
+ */
+const modeJournalLine = async (m, side, transaction) => {
+  const target = await AccountsService.resolveMoneyAccount({ accountId: m.accountId, mode: m.mode }, transaction);
+  const ref = target.accountId ? { accountId: target.accountId } : { accountKey: target.accountKey };
+  return side === 'DEBIT'
+    ? { ...ref, debitPaise: m.amountPaise, creditPaise: 0 }
+    : { ...ref, debitPaise: 0, creditPaise: m.amountPaise };
+};
 
 const validateModes = (modes, totalAmountPaise) => {
   if (!modes || !modes.length) throw new ValidationError('At least one payment mode is required');
@@ -71,6 +83,50 @@ const getInvoiceAllocatedAmount = async (invoiceType, invoiceId, { excludeReceip
   return fromReceipts + fromPayments;
 };
 
+/** Per-invoice allocation totals for one parent type, in a single grouped query. */
+const sumAllocationsByInvoice = async (model, alias, invoiceType, invoiceIds, transaction) =>
+  PaymentAllocation.findAll({
+    attributes: [
+      'invoiceId',
+      [fn('COALESCE', fn('SUM', col('PaymentAllocation.allocatedAmountPaise')), 0), 'total'],
+    ],
+    where: { invoiceType, invoiceId: invoiceIds },
+    include: [{ model, as: alias, attributes: [], required: true, where: { status: 'POSTED' } }],
+    group: ['PaymentAllocation.invoiceId'],
+    transaction,
+    raw: true,
+  });
+
+/**
+ * What getInvoiceAllocatedAmount answers for one invoice, answered for a whole
+ * page in two queries.
+ *
+ * This exists so the invoice list cannot disagree with the allocation guard.
+ * The list used to sum `payment_allocations` on its own with no join to the
+ * parent, so a CANCELLED receipt still counted: cancel a receipt — or bounce
+ * the cheque behind it, which cancels it for you — and the invoice went on
+ * reporting itself fully settled. The debt was real, the ledger had reversed
+ * it, and the only screen anyone would collect from showed nothing owing.
+ *
+ * The `required: true` INNER JOIN is the whole point, and it is the same shape
+ * sumAllocations uses above; putting the status test in a LEFT JOIN's ON clause
+ * is what caused the original version of that bug.
+ */
+const getAllocatedAmountsByInvoice = async (invoiceType, invoiceIds, { transaction } = {}) => {
+  const totals = new Map();
+  if (!invoiceIds || !invoiceIds.length) return totals;
+
+  const [fromReceipts, fromPayments] = await Promise.all([
+    sumAllocationsByInvoice(Receipt, 'receipt', invoiceType, invoiceIds, transaction),
+    sumAllocationsByInvoice(Payment, 'payment', invoiceType, invoiceIds, transaction),
+  ]);
+
+  for (const row of [...fromReceipts, ...fromPayments]) {
+    totals.set(row.invoiceId, (totals.get(row.invoiceId) || 0) + Number(row.total || 0));
+  }
+  return totals;
+};
+
 /**
  * Creates a Cheque record for every cheque-mode line on a receipt/payment, so
  * the money can be followed to clearance (FR-M18-7). Modes other than CHEQUE
@@ -89,10 +145,48 @@ const createChequesFor = async ({ modes, factoryId, partyId, direction, date, re
         status: 'ISSUED',
         receiptId: receiptId || null,
         paymentId: paymentId || null,
+        accountId: mode.accountId || null,
       },
       { transaction }
     );
   }
+};
+
+
+/**
+ * Attaches the human invoice number to each allocation.
+ *
+ * The allocation is polymorphic — `invoiceType` plus a bare `invoiceId` — so a
+ * detail screen listing allocations could only show UUIDs. Resolved here rather
+ * than by the caller so every consumer of a receipt or payment gets the same
+ * label, and so it cannot be forgotten on the next screen that needs it.
+ *
+ * One query per invoice type, not one per allocation.
+ */
+const withInvoiceNumbers = async (record) => {
+  const allocations = record?.allocations || [];
+  if (!allocations.length) return record;
+
+  const idsOfType = (type) => allocations.filter((a) => a.invoiceType === type).map((a) => a.invoiceId);
+  const [salesInvoices, purchaseInvoices] = await Promise.all([
+    idsOfType('SALES').length
+      ? SalesInvoice.findAll({ where: { id: idsOfType('SALES') }, attributes: ['id', 'invoiceNumber'] })
+      : [],
+    idsOfType('PURCHASE').length
+      ? PurchaseInvoice.findAll({ where: { id: idsOfType('PURCHASE') }, attributes: ['id', 'vendorInvoiceNumber'] })
+      : [],
+  ]);
+
+  const numbers = new Map();
+  salesInvoices.forEach((i) => numbers.set(i.id, i.invoiceNumber));
+  purchaseInvoices.forEach((i) => numbers.set(i.id, i.vendorInvoiceNumber));
+
+  const json = record.toJSON ? record.toJSON() : record;
+  json.allocations = allocations.map((a) => {
+    const plain = a.toJSON ? a.toJSON() : a;
+    return { ...plain, invoiceNumber: numbers.get(plain.invoiceId) || null };
+  });
+  return json;
 };
 
 class PaymentsService {
@@ -115,8 +209,8 @@ class PaymentsService {
     return receipt;
   }
 
-  static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations }) {
-    return sequelize.transaction(async (transaction) => {
+  static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations, transaction: outerTransaction = null }) {
+    const post = async (transaction) => {
       const totalAmountPaise = addPaise(...modes.map((m) => m.amountPaise));
       validateModes(modes, totalAmountPaise);
 
@@ -163,7 +257,7 @@ class PaymentsService {
       }
 
       const journalLines = [{ accountKey: 'ACCOUNTS_RECEIVABLE', partyId: customerPartyId, debitPaise: 0, creditPaise: totalAmountPaise }];
-      for (const m of modes) journalLines.push({ accountKey: modeAccountKey(m.mode), debitPaise: m.amountPaise, creditPaise: 0 });
+      for (const m of modes) journalLines.push(await modeJournalLine(m, 'DEBIT', transaction));
 
       await LedgerService.postJournal({
         factoryId, entryDate: receiptDate, referenceType: 'Receipt', referenceId: receipt.id,
@@ -179,7 +273,25 @@ class PaymentsService {
       });
 
       return this.getReceipt(receipt.id);
-    });
+    };
+
+    /**
+     * Joins the caller's transaction when given one, instead of opening a
+     * second.
+     *
+     * A counter sale posts the invoice, issues the stock and takes the money as
+     * a single unit, and the receipt has to see the invoice that the same
+     * transaction created moments earlier. Sequelize's CLS does bind loose
+     * queries to the active transaction, but a nested `sequelize.transaction()`
+     * here did NOT become a savepoint of it — the inner transaction could not
+     * see the uncommitted invoice and every counter sale with a payment failed
+     * with "Sales invoice not found". Taking the transaction as a parameter
+     * makes the boundary explicit rather than depending on that behaviour.
+     *
+     * Callers that pass nothing are unaffected: they still get their own
+     * transaction, exactly as before.
+     */
+    return outerTransaction ? post(outerTransaction) : sequelize.transaction(post);
   }
 
   static async cancelReceipt(id, reason) {
@@ -193,6 +305,24 @@ class PaymentsService {
       await receipt.update({ status: 'CANCELLED' }, { transaction });
       return this.getReceipt(id);
     });
+  }
+
+  /**
+   * The receipt as a screen wants it: allocations carrying invoice numbers
+   * rather than bare `invoiceId`s.
+   *
+   * Separate from getReceipt on purpose. getReceipt is what the mutating paths
+   * use — cancelReceipt calls `.update()` on what it returns — and resolving
+   * the numbers means returning a plain object, which silently turned that
+   * `.update()` into a TypeError. A presentation concern must not change the
+   * type an internal caller depends on.
+   */
+  static async getReceiptDetail(id) {
+    return withInvoiceNumbers(await this.getReceipt(id));
+  }
+
+  static async getPaymentDetail(id) {
+    return withInvoiceNumbers(await this.getPayment(id));
   }
 
   // --- Payments (money out to vendor/contractor/labour) ---
@@ -261,7 +391,7 @@ class PaymentsService {
       }
 
       const journalLines = [{ accountKey: 'ACCOUNTS_PAYABLE', partyId, debitPaise: totalAmountPaise, creditPaise: 0 }];
-      for (const m of modes) journalLines.push({ accountKey: modeAccountKey(m.mode), debitPaise: 0, creditPaise: m.amountPaise });
+      for (const m of modes) journalLines.push(await modeJournalLine(m, 'CREDIT', transaction));
 
       await LedgerService.postJournal({
         factoryId, entryDate: paymentDate, referenceType: 'Payment', referenceId: payment.id,
@@ -301,4 +431,4 @@ class PaymentsService {
   }
 }
 
-module.exports = { PaymentsService, getInvoiceAllocatedAmount };
+module.exports = { PaymentsService, getInvoiceAllocatedAmount, getAllocatedAmountsByInvoice };

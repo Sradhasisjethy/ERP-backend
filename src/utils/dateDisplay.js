@@ -87,20 +87,30 @@ const formatDate = (value, { dateFormat, timeZone } = {}) => {
  * fault — `new Date(y, m, 1).toISOString()` builds local midnight and then
  * reads it back in UTC, landing on the last day of the previous month.
  */
-const todayInZone = (timeZone) => {
+/**
+ * Any instant as a YYYY-MM-DD calendar date in `timeZone`.
+ *
+ * `en-CA` is used because it formats as YYYY-MM-DD natively, so the parts never
+ * have to be reassembled by hand. Note that `toISOString().slice(0, 10)` is NOT
+ * an acceptable substitute — that is the UTC date — and neither is
+ * `toString().slice(0, 10)`, which yields "Fri Sep 11".
+ */
+const isoDateInZone = (date, timeZone) => {
   try {
     return new Intl.DateTimeFormat('en-CA', {
       timeZone: timeZone || undefined,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    }).format(new Date());
+    }).format(date);
   } catch {
-    return new Date().toISOString().slice(0, 10);
+    return date.toISOString().slice(0, 10);
   }
 };
+
+const todayInZone = (timeZone) => isoDateInZone(new Date(), timeZone);
 
 /** First day of the month `todayInZone` falls in — no date arithmetic round trip. */
 const monthStartInZone = (timeZone) => `${todayInZone(timeZone).slice(0, 7)}-01`;
 
-module.exports = { formatDate, todayInZone, monthStartInZone, PATTERNS, DEFAULT_PATTERN };
+module.exports = { formatDate, isoDateInZone, todayInZone, monthStartInZone, PATTERNS, DEFAULT_PATTERN };

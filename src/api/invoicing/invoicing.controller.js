@@ -7,9 +7,9 @@ const { renderInvoicePdf } = require('./invoicePdf.service');
 const { SettingsService } = require('../settings/settings.service');
 
 const listInvoices = asyncHandler(async (req, res) => {
-  const { page, limit, factoryId, customerPartyId, status, search } = req.query;
+  const { page, limit, factoryId, customerPartyId, status, search, openOnly } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
-  const data = await InvoicingService.listInvoices(Number(page), Number(limit), { customerPartyId, status, search, baseWhere });
+  const data = await InvoicingService.listInvoices(Number(page), Number(limit), { customerPartyId, status, search, openOnly, baseWhere });
   sendList(res, req, maskRateFields(data, req), 'Sales invoices retrieved successfully');
 });
 

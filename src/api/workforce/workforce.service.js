@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { Op } = require('sequelize');
 const { searchWhere } = require('../../utils/pagination');
 const { sequelize } = require('../../config/database');
 const { ContractorMaterialIssue } = require('./contractorMaterialIssue.model');
@@ -14,6 +15,7 @@ const { MixDesignLine } = require('../products/mixDesignLine.model');
 const { BomService } = require('../products/bom.service');
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
+const { StockLot } = require('../inventory/stockLot.model');
 const { StockLedgerService } = require('../inventory/stockLedger.service');
 const { PricingService } = require('../pricing/pricing.service');
 const { LedgerService } = require('../ledger/ledger.service');
@@ -121,12 +123,49 @@ class WorkforceService {
       const resolvedRate = pieceRatePaiseOverride ?? (await PricingService.resolveRate(productId, { partyId: contractorPartyId, priceType: 'CONTRACTOR_RATE' }));
       if (!resolvedRate) throw new ValidationError('No contractor piece rate is configured for this product — add one under Price Lists (Contractor Rate)');
 
+      // 1) Resolve BOM recipe and validate raw material holdings held by contractor up-front
+      const { requirements } = await BomService.explode(mixDesign.id, quantity, transaction);
+
+      const shortages = [];
+      for (const requirement of requirements) {
+        const requiredQty = Number(requirement.quantity);
+        if (requiredQty <= 0) continue;
+
+        const lots = await StockLot.findAll({
+          where: {
+            factoryId,
+            productId: requirement.rawMaterialProductId,
+            status: 'WITH_CONTRACTOR',
+            heldByPartyId: contractorPartyId,
+            qtyAvailable: { [Op.gt]: 0 },
+          },
+          transaction,
+        });
+        const totalAvailable = lots.reduce((sum, lot) => sum + Number(lot.qtyAvailable), 0);
+        if (totalAvailable < requiredQty) {
+          const uomLabel = requirement.uomCode ? ` ${requirement.uomCode}` : '';
+          const shortQty = Number((requiredQty - totalAvailable).toFixed(4));
+          shortages.push(
+            `${requirement.rawMaterialName || 'Material'}: need ${requiredQty}${uomLabel}, available with contractor ${totalAvailable}${uomLabel} (short by ${shortQty}${uomLabel})`
+          );
+        }
+      }
+
+      if (shortages.length) {
+        const bulletList = shortages.map((s) => `• ${s}`).join('\n');
+        throw new ValidationError(
+          `Insufficient raw material held by contractor to produce ${quantity} of ${product.name || product.code} (${shortages.length} material${shortages.length === 1 ? '' : 's'} short):\n\n` +
+            `${bulletList}\n\n` +
+            `Please issue the required materials under Contractor & Labour → Material Issues.`
+        );
+      }
+
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('CONTRACTOR_PRODUCTION_ENTRY', { factoryId, financialYearId, prefix: 'CPE', transaction });
 
       const entryId = crypto.randomUUID();
 
-      // 1) Creates finished stock (BR-22) — normal factory stock, same as an
+      // 2) Creates finished stock (BR-22) — normal factory stock, same as an
       //    own-production entry; curing rules apply identically.
       const lot = await StockLedgerService.createLot({
         factoryId, productId, lotNumber: documentNumber, originType: 'PRODUCTION', originId: entryId,
@@ -137,13 +176,7 @@ class WorkforceService {
         referenceType: 'ContractorProductionEntry', referenceId: entryId, transaction,
       });
 
-      // 2) Consumes material out of the contractor's WITH_CONTRACTOR holding.
-      //
-      // Through explode(), for the same reason own-production does: it applies
-      // the wastage allowance and converts each BOM unit into the one the
-      // material is stocked in. Multiplying quantityPerUnit directly would
-      // deduct kilograms from a balance held in cubic metres.
-      const { requirements } = await BomService.explode(mixDesign.id, quantity, transaction);
+      // 3) Consumes material out of the contractor's WITH_CONTRACTOR holding.
 
       for (const requirement of requirements) {
         const requiredQty = Number(requirement.quantity);

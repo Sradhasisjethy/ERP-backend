@@ -44,6 +44,10 @@ Cheque.initAudited(
     // Whichever document created it — exactly one is set.
     receiptId: { type: DataTypes.UUID, allowNull: true },
     paymentId: { type: DataTypes.UUID, allowNull: true },
+
+    // The bank account the cheque was posted to. NULL means the system Bank
+    // Account, which is where every cheque went before banks could be named.
+    accountId: { type: DataTypes.UUID, allowNull: true },
   },
   {
     sequelize,

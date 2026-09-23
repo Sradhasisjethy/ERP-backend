@@ -63,4 +63,10 @@ const listQuerySchema = z.object({
   vendorPartyId: z.string().uuid().optional(),
 });
 
-module.exports = { createSalesReturnSchema, createPurchaseReturnSchema, createCreditNoteSchema, createDebitNoteSchema, cancelSchema, listQuerySchema };
+const returnableQuerySchema = z.object({
+  factoryId: z.string().uuid(),
+  customerPartyId: z.string().uuid(),
+});
+
+module.exports = {
+  returnableQuerySchema, createSalesReturnSchema, createPurchaseReturnSchema, createCreditNoteSchema, createDebitNoteSchema, cancelSchema, listQuerySchema };

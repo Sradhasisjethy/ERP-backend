@@ -6,6 +6,7 @@ const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
+const { AccountsService } = require('../ledger/accounts.service');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 
 const getCurrentFinancialYearId = async (transaction) => {
@@ -31,15 +32,17 @@ class ExpensesService {
     return record;
   }
 
-  static async createExpense({ factoryId, expenseDate, category, mode, amountPaise, paidToPartyId, description }) {
+  static async createExpense({ factoryId, expenseDate, category, mode, amountPaise, paidToPartyId, description, accountId }) {
     if (!amountPaise || amountPaise <= 0) throw new ValidationError('amountPaise must be positive');
 
     return sequelize.transaction(async (transaction) => {
+      const paidFrom = await AccountsService.resolveMoneyAccount({ accountId, mode }, transaction);
+
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('EXPENSE', { factoryId, financialYearId, prefix: 'EXP', transaction });
 
       const expense = await Expense.create(
-        { factoryId, expenseNumber: documentNumber, expenseDate, category, mode, amountPaise, paidToPartyId: paidToPartyId || null, description },
+        { factoryId, expenseNumber: documentNumber, expenseDate, category, mode, amountPaise, paidToPartyId: paidToPartyId || null, description, accountId: paidFrom.accountId || null },
         { transaction }
       );
 
@@ -48,7 +51,9 @@ class ExpensesService {
         narration: `Expense ${documentNumber} — ${category}`,
         lines: [
           { accountKey: 'FACTORY_EXPENSE', debitPaise: amountPaise, creditPaise: 0 },
-          { accountKey: mode === 'CASH' ? 'CASH' : 'BANK', debitPaise: 0, creditPaise: amountPaise },
+          paidFrom.accountId
+            ? { accountId: paidFrom.accountId, debitPaise: 0, creditPaise: amountPaise }
+            : { accountKey: paidFrom.accountKey, debitPaise: 0, creditPaise: amountPaise },
         ],
         transaction,
       });

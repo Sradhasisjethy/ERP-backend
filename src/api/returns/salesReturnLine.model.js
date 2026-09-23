@@ -30,6 +30,12 @@ SalesReturnLine.initAudited(
       type: DataTypes.BIGINT,
       allowNull: false,
     },
+    gstRatePercent: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+    taxableAmountPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    cgstPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    sgstPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    igstPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
+    lineTotalPaise: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
     createdLotId: {
       type: DataTypes.UUID,
       allowNull: false,
