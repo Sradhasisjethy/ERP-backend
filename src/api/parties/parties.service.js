@@ -98,8 +98,8 @@ class PartiesService {
    * data-entry mistake, and it is the mistake that splits a customer's
    * receivables across two ledgers.
    */
-  static async assertNotDuplicate(data, excludeId) {
-    if (data.code) {
+  static async assertNotDuplicate(data, excludeId, { skipCode = false } = {}) {
+    if (data.code && !skipCode) {
       await assertUnique(Party, { code: data.code }, excludeId, `A party with code "${data.code}" already exists`);
     }
     if (data.gstin && data.partyType) {
@@ -112,12 +112,19 @@ class PartiesService {
     }
   }
 
-  static async createParty(data) {
-    await this.assertNotDuplicate(data);
+  /**
+   * `preVerified` — the importer has already proved this party code is free,
+   * for the whole file in one query. The GSTIN check is NOT skipped: the
+   * importer matches on code and knows nothing about which GSTINs are taken,
+   * and two customers sharing one is a GST return that gets rejected.
+   * See ProductsService.createProduct for the full reasoning.
+   */
+  static async createParty(data, { preVerified = false } = {}) {
+    await this.assertNotDuplicate(data, null, { skipCode: preVerified });
     return Party.create(data);
   }
 
-  static async updateParty(id, data) {
+  static async updateParty(id, data, { preVerified = false } = {}) {
     const party = await this.getParty(id);
     // partyType is immutable once set (the UI disables it too) — reclassifying
     // a party that already has documents would silently move them between the
@@ -126,7 +133,7 @@ class PartiesService {
       const used = await this.countDependents(id);
       if (used) throw new ValidationError('This party already has documents against it — its type can no longer be changed');
     }
-    await this.assertNotDuplicate({ partyType: party.partyType, ...data }, id);
+    await this.assertNotDuplicate({ partyType: party.partyType, ...data }, id, { skipCode: preVerified });
     return party.update(data);
   }
 

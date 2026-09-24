@@ -76,8 +76,10 @@ class ProductsService {
     return uom;
   }
 
-  static async createUom(data) {
-    await assertUnique(Uom, { code: data.code }, null, `A unit of measure with code "${data.code}" already exists`);
+  static async createUom(data, { preVerified = false } = {}) {
+    if (!preVerified) {
+      await assertUnique(Uom, { code: data.code }, null, `A unit of measure with code "${data.code}" already exists`);
+    }
     return Uom.create(data);
   }
 
@@ -156,10 +158,12 @@ class ProductsService {
     }
   }
 
-  static async createProductCategory(data) {
-    if (data.code) {
+  static async createProductCategory(data, { preVerified = false } = {}) {
+    if (!preVerified && data.code) {
       await assertUnique(ProductCategory, { code: data.code }, null, `A product category with code "${data.code}" already exists`);
     }
+    // The cycle check stays either way: the importer proves a parent exists,
+    // never that following it does not lead back here.
     if (data.parentId) await this.assertNoCategoryCycle(null, data.parentId);
     return ProductCategory.create(data);
   }
@@ -202,8 +206,8 @@ class ProductsService {
     return hsn;
   }
 
-  static async createHsnCode(data) {
-    await assertUnique(HsnCode, { code: data.code }, null, `HSN code "${data.code}" already exists`);
+  static async createHsnCode(data, { preVerified = false } = {}) {
+    if (!preVerified) await assertUnique(HsnCode, { code: data.code }, null, `HSN code "${data.code}" already exists`);
     return HsnCode.create(data);
   }
 
@@ -277,18 +281,39 @@ class ProductsService {
     }
   }
 
-  static async createProduct(data) {
-    await assertUnique(Product, { code: data.code }, null, `A product with code "${data.code}" already exists`);
-    await this.assertReferencesResolve(data);
+/**
+ * `preVerified` — the caller has already proved, for this very record and inside
+ * this tenant, that the business key is free and every reference resolves.
+ *
+ * Only the bulk importer passes it, and only because it establishes both in one
+ * query each for the whole file and re-establishes them immediately before it
+ * writes. Skipping the per-row repeat is what takes a product from six database
+ * round trips to two, which on a remote database is the difference between two
+ * minutes and forty seconds for a thousand rows.
+ *
+ * It weakens nothing. Both checks are reads followed by a write either way, so
+ * the real guarantee was always the unique index and the foreign keys, and
+ * those still run. Anything the caller got wrong surfaces as a constraint
+ * violation and rolls the whole import back.
+ *
+ * Every screen and every other caller leaves it alone and keeps the checks.
+ */
+  static async createProduct(data, { preVerified = false } = {}) {
+    if (!preVerified) {
+      await assertUnique(Product, { code: data.code }, null, `A product with code "${data.code}" already exists`);
+      await this.assertReferencesResolve(data);
+    }
     return Product.create(data);
   }
 
-  static async updateProduct(id, data) {
+  static async updateProduct(id, data, { preVerified = false } = {}) {
     const product = await this.getProduct(id);
-    if (data.code && data.code !== product.code) {
-      await assertUnique(Product, { code: data.code }, id, `A product with code "${data.code}" already exists`);
+    if (!preVerified) {
+      if (data.code && data.code !== product.code) {
+        await assertUnique(Product, { code: data.code }, id, `A product with code "${data.code}" already exists`);
+      }
+      await this.assertReferencesResolve(data);
     }
-    await this.assertReferencesResolve(data);
 
     // min/max are individually optional, so the pair has to be validated
     // against whatever the record will hold *after* the patch, not just

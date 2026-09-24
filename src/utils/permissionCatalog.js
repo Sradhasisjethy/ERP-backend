@@ -26,6 +26,45 @@ const Actions = Object.freeze({
 });
 
 const CRUD = [Actions.READ, Actions.CREATE, Actions.MODIFY, Actions.DELETE];
+
+/**
+ * Bulk Excel import and export of a master.
+ *
+ * Grants rather than actions, for the same reason REPORT_*_EXPORT is: neither
+ * comes along with ordinary write access. Exporting takes the whole customer
+ * list out of the building in one file, and importing rewrites in one upload
+ * what the edit dialog changes one record at a time — so each is a decision
+ * somebody makes on purpose.
+ *
+ * Import is deliberately not sufficient on its own. The importer also checks
+ * CREATE for rows that would add records and MODIFY for rows that would change
+ * them, so a role that may correct products but not add them keeps exactly
+ * that boundary when it uploads a file.
+ */
+const importExportGrants = (label) => [
+  {
+    code: '__IMPORT__',
+    label: `Import ${label.toLowerCase()} from Excel`,
+    description: 'Upload a workbook that creates and updates records in bulk. Still subject to the create and edit permissions above.',
+  },
+  {
+    code: '__EXPORT__',
+    label: `Export ${label.toLowerCase()} to Excel`,
+    description: 'Download the full filtered list as a workbook — not just the page on screen.',
+  },
+];
+
+/** Attaches the two grants to a resource, with its own key baked into the codes. */
+const withImportExport = (resource) => ({
+  ...resource,
+  grants: [
+    ...(resource.grants || []),
+    ...importExportGrants(resource.label).map((grant) => ({
+      ...grant,
+      code: grant.code.replace('__IMPORT__', `${resource.key}_IMPORT`).replace('__EXPORT__', `${resource.key}_EXPORT`),
+    })),
+  ],
+});
 const READ_ONLY = [Actions.READ];
 
 /** Wildcard held by the seeded Platform Admin role. */
@@ -86,7 +125,7 @@ const PERMISSION_CATALOG = Object.freeze([
     resources: [
       { key: 'EMPLOYEE', label: 'Users', actions: CRUD },
       { key: 'ROLE', label: 'Roles & Permissions', actions: CRUD },
-      { key: 'ORG', label: 'Organization Structure', actions: CRUD },
+      withImportExport({ key: 'ORG', label: 'Organization Structure', actions: CRUD }),
       { key: 'FACTORY', label: 'Locations & Financial Years', actions: CRUD },
       { key: 'SETTINGS', label: 'System Settings', actions: CRUD },
       {
@@ -103,10 +142,10 @@ const PERMISSION_CATALOG = Object.freeze([
     module: 'Masters',
     description: 'Reference data the rest of the system is built on',
     resources: [
-      { key: 'PARTY', label: 'Parties (Customers, Vendors, Contractors, Labour)', actions: CRUD },
-      { key: 'PRODUCT', label: 'Products, BOM, UoM & Categories', actions: CRUD },
-      { key: 'VEHICLE', label: 'Vehicles', actions: CRUD },
-      { key: 'PRICING', label: 'Price Lists', actions: CRUD },
+      withImportExport({ key: 'PARTY', label: 'Parties (Customers, Vendors, Contractors, Labour)', actions: CRUD }),
+      withImportExport({ key: 'PRODUCT', label: 'Products, BOM, UoM & Categories', actions: CRUD }),
+      withImportExport({ key: 'VEHICLE', label: 'Vehicles', actions: CRUD }),
+      withImportExport({ key: 'PRICING', label: 'Price Lists', actions: CRUD }),
     ],
   },
   {
@@ -190,14 +229,14 @@ const PERMISSION_CATALOG = Object.freeze([
     resources: [
       { key: 'CONTRACTOR', label: 'Contractors', actions: CRUD },
       { key: 'LABOUR', label: 'Labour & Attendance', actions: CRUD },
-      {
+      withImportExport({
         key: 'LEAVE',
         label: 'Staff Leave',
         actions: CRUD,
         grants: [
           { code: 'LEAVE_APPROVE', label: 'Approve leave', description: 'Deliberately separate from applying for it, and never for your own request.' },
         ],
-      },
+      }),
       { key: 'STAFF_ATTENDANCE', label: 'Staff Attendance', actions: CRUD },
     ],
   },
@@ -211,7 +250,7 @@ const PERMISSION_CATALOG = Object.freeze([
       { key: 'CASH_REGISTER', label: 'Counter Cash Register', actions: CRUD },
       { key: 'FINANCE_ADJUSTMENT', label: 'Finance Adjustments', actions: CRUD },
       { key: 'LEDGER', label: 'Ledger, Trial Balance & Financial Statements', actions: READ_ONLY },
-      { key: 'ACCOUNT', label: 'Chart of Accounts & Bank Accounts', actions: CRUD },
+      withImportExport({ key: 'ACCOUNT', label: 'Chart of Accounts & Bank Accounts', actions: CRUD }),
       { key: 'JOURNAL', label: 'Journal & Contra Vouchers', actions: CRUD },
       { key: 'FIXED_ASSET', label: 'Fixed Assets & Depreciation', actions: CRUD },
       { key: 'GSTR', label: 'GST Returns', actions: READ_ONLY },

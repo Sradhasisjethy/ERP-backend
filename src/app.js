@@ -48,6 +48,7 @@ const { analyticsRouter } = require('./api/analytics/analytics.router');
 const { reportsRouter } = require('./api/reports/reports.router');
 const { notificationsRouter } = require('./api/notifications/notifications.router');
 const { migrationRouter } = require('./api/migration/migration.router');
+const { masterDataRouter } = require('./api/masterData/masterData.router');
 require('./models/index');
 
 const app = express();
@@ -178,6 +179,8 @@ app.use('/api/v1/analytics', analyticsRouter);
 app.use('/api/v1/reports', reportsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
 app.use('/api/v1/migration', migrationRouter);
+// Excel import/export for every master, one route set for all of them
+app.use('/api/v1/master-data', masterDataRouter);
 
 // Unmatched routes -> JSON 404 (must come after all routes, before the error handler)
 app.use(notFoundHandler);

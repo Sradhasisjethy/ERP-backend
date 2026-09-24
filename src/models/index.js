@@ -13,6 +13,7 @@ const { FinancialYear } = require('../api/factory/financialYear.model');
 const { UserFactory } = require('../api/factory/userFactory.model');
 const { DocumentSeries } = require('../api/documentSeries/documentSeries.model');
 const { AuditLog } = require('../api/audit/auditLog.model');
+const { MasterImportRun } = require('../api/masterData/importRun.model');
 const { Uom } = require('../api/products/uom.model');
 const { ProductCategory } = require('../api/products/productCategory.model');
 const { HsnCode } = require('../api/products/hsnCode.model');
@@ -208,6 +209,7 @@ Party.hasOne(LabourWageProfile, { as: 'wageProfile', foreignKey: 'partyId' });
 Party.belongsTo(Party, { as: 'contractor', foreignKey: 'contractorId' });
 
 module.exports = {
+  MasterImportRun,
   User,
   Tenant,
   Organization,
