@@ -50,6 +50,12 @@ MaterialConsumption.initAudited(
       allowNull: false,
       defaultValue: false,
     },
+    // Who recorded the consumption. Kept so approval can refuse the person who
+    // did the work — see ProductionService.approveVariance (BR-09).
+    recordedBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
     approvedBy: {
       type: DataTypes.UUID,
       allowNull: true,

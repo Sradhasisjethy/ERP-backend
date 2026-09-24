@@ -20,7 +20,6 @@ const { NotFoundError } = require('../../core/AppError');
  * else moved.
  */
 
-const RATE_FIELDS = ['ratePaise', 'systemUnitPricePaise', 'totalAmountPaise'];
 
 /** The response envelope every mutating bundle endpoint returns (§6). */
 const respond = async (req, res, orderId, warnings = [], message) => {
@@ -30,7 +29,7 @@ const respond = async (req, res, orderId, warnings = [], message) => {
   // BR-28, matching the behaviour of GET /sales/orders/:id.
   if (!hasPermission(req.user, 'VIEW_PO_ATTACHMENTS')) delete plain.poAttachmentUrl;
 
-  sendSuccess(res, { order: maskRateFields(plain, req, RATE_FIELDS), warnings }, message);
+  sendSuccess(res, { order: maskRateFields(plain, req), warnings }, message);
 };
 
 /**

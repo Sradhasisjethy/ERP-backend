@@ -10,6 +10,7 @@ const { UnauthorizedError, NotFoundError, BadRequestError } = require('../../cor
 const { expandPermissions } = require('../../utils/permissionCatalog');
 const emailService = require('../../services/email.service');
 const { WebPermissions, SystemRoles, EmployeeStatus } = require('../../utils/constants');
+const { permissionsForSystemRole } = require('../../utils/systemRolePermissions');
 const { RefreshToken } = require('./refreshToken.model');
 
 /**
@@ -28,28 +29,10 @@ class AuthService {
   async getPermissionsForUser(userId, role) {
     const permissions = new Set();
 
-    // Default role-based permissions
-    if ([SystemRoles.PLATFORM_ADMIN, SystemRoles.TENANT_OWNER, SystemRoles.ORG_ADMIN].includes(role)) {
-      Object.values(WebPermissions).forEach((p) => permissions.add(p));
-    } else if (role === SystemRoles.HR_ADMIN) {
-      permissions.add(WebPermissions.EMPLOYEE_READ);
-      permissions.add(WebPermissions.EMPLOYEE_WRITE);
-      permissions.add(WebPermissions.ORG_READ);
-      permissions.add(WebPermissions.ROLE_READ);
-    } else if (role === SystemRoles.MANAGER) {
-      permissions.add(WebPermissions.EMPLOYEE_READ);
-      permissions.add(WebPermissions.ORG_READ);
-      permissions.add(WebPermissions.PARTY_READ);
-      permissions.add(WebPermissions.PRODUCT_READ);
-      permissions.add(WebPermissions.INVENTORY_READ);
-      permissions.add(WebPermissions.SALES_READ);
-      permissions.add(WebPermissions.PURCHASE_READ);
-      permissions.add(WebPermissions.PRODUCTION_READ);
-      permissions.add(WebPermissions.QUALITY_READ);
-      permissions.add(WebPermissions.TRANSFER_READ);
-      permissions.add(WebPermissions.DISPATCH_READ);
-      permissions.add(WebPermissions.INVOICE_READ);
-    }
+    // Default role-based permissions. The mapping lives in
+    // utils/systemRolePermissions.js because assigning the role column is also a
+    // grant, and the user-administration guard has to read the same table.
+    permissionsForSystemRole(role).forEach((p) => permissions.add(p));
     // EMPLOYEE deliberately grants nothing on its own.
     //
     // It used to hand every employee blanket read access across sales,
@@ -88,6 +71,9 @@ class AuthService {
         organizationId: user.organizationId,
         role: user.role,
         permissions,
+        // What makes the token revocable: `authenticate` refuses it once the
+        // user's stored counter moves past this. See utils/permissionVersion.js.
+        permissionsVersion: user.permissionsVersion ?? 1,
       },
       env.JWT_SECRET,
       { expiresIn: env.JWT_ACCESS_EXPIRATION || '1h', algorithm: 'HS256' }
@@ -205,9 +191,13 @@ class AuthService {
     if (!user) {
       throw new UnauthorizedError('User not found');
     }
-    // Re-checked on every refresh, which is the only point at which a
-    // still-valid session can be cut short: the access token itself is
-    // stateless and lives for 15 minutes.
+    // Re-checked on every refresh. This used to be the *only* point at which a
+    // still-valid session could be cut short, because the access token was
+    // verified by signature alone and lives for JWT_ACCESS_EXPIRATION — an hour
+    // by default, not the fifteen minutes this comment used to claim.
+    // `authenticate` now also checks the account's status and permissions
+    // version on each request, so a disabled or demoted user is stopped there;
+    // this remains the point at which a *new* token picks up the change.
     AuthService.assertUsable(user);
 
     // The signature only proves the token was issued by us; this proves it has

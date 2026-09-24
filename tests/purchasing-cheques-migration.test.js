@@ -10,6 +10,7 @@ const {
 
 const PASSWORD = 'password123';
 let adminCookie;
+let approverCookie;
 let tenantId;
 let factory;
 let rawMaterial;
@@ -32,6 +33,8 @@ beforeAll(async () => {
   const org = await Organization.create({ tenantId, name: 'Bhuasuni Precast Pvt Ltd', code: 'BPL' });
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
   await User.create({ tenantId, email: 'admin@pcm-test.co', passwordHash, firstName: 'Admin', lastName: 'User', role: 'PLATFORM_ADMIN' }, { validate: false });
+  // A second administrator: an indent may not be approved by whoever raised it.
+  await User.create({ tenantId, email: 'approver@pcm-test.co', passwordHash, firstName: 'Ann', lastName: 'Approver', role: 'PLATFORM_ADMIN' }, { validate: false });
 
   await FinancialYear.create({ tenantId, code: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
   factory = await Factory.create({ tenantId, organizationId: org.id, name: 'PCM Factory', code: 'PCM-FAC', state: 'Odisha' });
@@ -48,6 +51,7 @@ beforeAll(async () => {
   customer = await Party.create({ tenantId, partyType: 'CUSTOMER', name: 'PCM Customer', state: 'Odisha' });
 
   adminCookie = extractCookie(await request(app).post('/api/v1/auth/login').send({ email: 'admin@pcm-test.co', password: PASSWORD }), 'accessToken');
+  approverCookie = extractCookie(await request(app).post('/api/v1/auth/login').send({ email: 'approver@pcm-test.co', password: PASSWORD }), 'accessToken');
 });
 
 afterAll(async () => {
@@ -78,7 +82,8 @@ describe('FR-M11-1 Purchase indent lifecycle', () => {
   });
 
   it('approves and converts into a purchase order carrying the indent quantities', async () => {
-    const approved = await request(app).put(`/api/v1/purchasing/indents/${indentId}/approve`).set('Cookie', adminCookie);
+    // Approved by someone other than the raiser (FR-M11-1).
+    const approved = await request(app).put(`/api/v1/purchasing/indents/${indentId}/approve`).set('Cookie', approverCookie);
     expect(approved.status).toBe(200);
     expect(approved.body.data.status).toBe('APPROVED');
     expect(approved.body.data.approvedAt).toBeTruthy();
@@ -104,7 +109,7 @@ describe('FR-M11-1 Purchase indent lifecycle', () => {
       factoryId: factory.id, indentDate: '2026-08-03',
       lines: [{ productId: rawMaterial.id, quantity: 10 }, { productId: finishedGood.id, quantity: 5 }],
     });
-    await request(app).put(`/api/v1/purchasing/indents/${indent.body.data.id}/approve`).set('Cookie', adminCookie);
+    await request(app).put(`/api/v1/purchasing/indents/${indent.body.data.id}/approve`).set('Cookie', approverCookie);
 
     const res = await request(app).post(`/api/v1/purchasing/indents/${indent.body.data.id}/convert`).set('Cookie', adminCookie)
       .send({ vendorPartyId: vendor.id, lineRates: [{ productId: rawMaterial.id, ratePaise: 5000 }] });
@@ -358,8 +363,16 @@ describe('FR-M27-2/3 Report export', () => {
       { tenantId, email: 'clerk@pcm-test.co', passwordHash, firstName: 'Clerk', lastName: 'User', role: 'EMPLOYEE' },
       { validate: false }
     );
-    const group = await AdGroup.create({ tenantId, name: 'Report Reader', permissions: [WebPermissions.REPORT_READ] });
+    // REPORT_READ opens the builder; LEDGER_READ is what permits the trial
+    // balance itself. This test is about column masking, not about access.
+    const group = await AdGroup.create({
+      tenantId, name: 'Report Reader',
+      permissions: [WebPermissions.REPORT_READ, WebPermissions.LEDGER_READ],
+    });
     await AdGroupMember.create({ tenantId, adGroupId: group.id, employeeId: clerk.id });
+    // BR-29: the report names a factory, so the clerk must be assigned to it.
+    const { UserFactory } = require('../src/api/factory/userFactory.model');
+    await UserFactory.create({ tenantId, userId: clerk.id, factoryId: factory.id });
     const clerkCookie = extractCookie(
       await request(app).post('/api/v1/auth/login').send({ email: 'clerk@pcm-test.co', password: PASSWORD }),
       'accessToken'

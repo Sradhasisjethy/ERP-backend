@@ -5,21 +5,21 @@ const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields, hasViewRates } = require('../../utils/fieldMasking');
 const { hasPermission } = require('../../middlewares/authorize');
 
-const MONEY = ['discountPaise', 'subtotalPaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'roundOffPaise', 'totalPaise'];
-const LINE_MONEY = ['ratePaise', 'discountPaise', 'taxableAmountPaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'lineTotalPaise'];
-
-/** Totals and line amounts both carry money, deeper than maskRateFields reaches. */
-const mask = (quotation, req) => {
-  if (hasViewRates(req)) return quotation;
-  const stripped = maskRateFields(quotation, req, MONEY);
-  return { ...stripped, lines: maskRateFields(quotation.lines || [], req, LINE_MONEY) };
-};
+/**
+ * Header totals and line amounts both carry money. This used to name both sets
+ * by hand and mask them in two passes, because maskRateFields only reached the
+ * top level; it now walks the whole payload, so one call covers both — and
+ * covers any money field added later without this list having to be updated.
+ */
+const mask = (quotation, req) => maskRateFields(quotation, req);
 
 const list = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, status, customerPartyId, search } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await QuotationsService.list(Number(page), Number(limit), { status, customerPartyId, search, baseWhere });
-  sendList(res, req, { ...maskRateFields(data, req, MONEY), rows: data.rows.map((q) => mask(q, req)) }, 'Quotations retrieved successfully');
+  // maskRateFields understands a {rows, count} payload and walks each row's
+  // lines, so the envelope and the rows no longer need masking separately.
+  sendList(res, req, maskRateFields(data, req), 'Quotations retrieved successfully');
 });
 
 const get = asyncHandler(async (req, res) => {
@@ -57,7 +57,7 @@ const convert = asyncHandler(async (req, res) => {
     res,
     {
       quotation: mask(quotation, req),
-      order: maskRateFields(order.toJSON ? order.toJSON() : order, req, ['totalAmountPaise']),
+      order: maskRateFields(order.toJSON ? order.toJSON() : order, req),
       creditWarning,
       roundingDifferencePaise: hasViewRates(req) ? roundingDifferencePaise : null,
     },

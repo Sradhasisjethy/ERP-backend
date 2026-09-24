@@ -1,11 +1,18 @@
 const { DataTypes } = require('sequelize');
-const { BaseScopedModel } = require('../../core/BaseModel');
+const { BaseAuditedModel } = require('../../core/AuditedModel');
 const { sequelize } = require('../../config/database');
 const { EmployeeStatus, EmployeeType, SystemRoles } = require('../../utils/constants');
 
-class User extends BaseScopedModel {}
+/**
+ * Audited: `users.role` decides whether a session bypasses every permission
+ * check in the application (middlewares/authorize.js), so a change to it is a
+ * privilege change and has to be attributable. Secrets are excluded from the
+ * snapshots below — an audit row must never become a second place the password
+ * hash or a live reset token is stored.
+ */
+class User extends BaseAuditedModel {}
 
-User.initScoped(
+User.initAudited(
   {
     id: {
       type: DataTypes.UUID,
@@ -134,11 +141,24 @@ User.initScoped(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    /**
+     * Bumped whenever this user's effective permissions change. The access
+     * token carries the value it was minted with, and `authenticate` refuses a
+     * token whose claim is behind this — see utils/permissionVersion.js.
+     */
+    permissionsVersion: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+    },
   },
   {
     sequelize,
     tableName: 'employees',
     timestamps: true,
+    // Never let an audit row become a second place a credential is stored. The
+    // point of auditing this model is the `role` column, not the secrets.
+    auditExclude: ['passwordHash', 'resetPasswordToken', 'resetPasswordExpires'],
     defaultScope: {
       attributes: { exclude: ['passwordHash'] },
     },

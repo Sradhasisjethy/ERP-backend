@@ -42,8 +42,13 @@ const updateRole = asyncHandler(async (req, res) => {
 });
 
 const deleteRole = asyncHandler(async (req, res) => {
-  await RoleService.deleteRole(req.params.id);
+  await RoleService.deleteRole(req.params.id, req.user);
   sendSuccess(res, null, 'Role deleted successfully');
+});
+
+const getEffectivePermissions = asyncHandler(async (req, res) => {
+  const data = await RoleService.effectivePermissionsFor(req.params.userId);
+  sendSuccess(res, data, 'Effective permissions retrieved successfully');
 });
 
 const getMembers = asyncHandler(async (req, res) => {
@@ -53,7 +58,7 @@ const getMembers = asyncHandler(async (req, res) => {
 
 const assignMember = asyncHandler(async (req, res) => {
   const { employeeId } = req.body;
-  const data = await RoleService.assignMember(req.params.id, employeeId);
+  const data = await RoleService.assignMember(req.params.id, employeeId, req.user);
   sendSuccess(res, data, 'Member assigned successfully', 201);
 });
 
@@ -64,6 +69,7 @@ const removeMember = asyncHandler(async (req, res) => {
 
 module.exports = {
   getPermissionCatalog,
+  getEffectivePermissions,
   listRoles,
   getRole,
   createRole,

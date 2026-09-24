@@ -16,6 +16,7 @@ const { WebPermissions } = require('../src/utils/constants');
 
 const PASSWORD = 'password123';
 let adminCookie;
+let approverCookie;
 let limitedCookie;
 let factory;
 let rawMaterial;
@@ -40,6 +41,9 @@ beforeAll(async () => {
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
 
   await User.create({ tenantId, email: 'admin@sp-test.co', passwordHash, firstName: 'Admin', lastName: 'User', role: 'PLATFORM_ADMIN' }, { validate: false });
+  // BR-09: a material variance is signed off by someone other than whoever
+  // recorded the consumption, so the suite needs a second supervisor.
+  await User.create({ tenantId, email: 'supervisor2@sp-test.co', passwordHash, firstName: 'Sam', lastName: 'Second', role: 'PLATFORM_ADMIN' }, { validate: false });
   const limitedUser = await User.create({ tenantId, email: 'sales@sp-test.co', passwordHash, firstName: 'Sales', lastName: 'User', role: 'EMPLOYEE' }, { validate: false });
   const limitedGroup = await AdGroup.create({
     tenantId,
@@ -66,6 +70,7 @@ beforeAll(async () => {
   customer = await Party.create({ tenantId, partyType: 'CUSTOMER', name: 'SP Customer', creditLimitPaise: 1000, creditAction: 'BLOCK' });
 
   adminCookie = await loginAs('admin@sp-test.co');
+  approverCookie = await loginAs('supervisor2@sp-test.co');
   limitedCookie = await loginAs('sales@sp-test.co');
 
   // Stock 200 units of raw material so production has material to consume.
@@ -230,7 +235,16 @@ describe('Production Entry (M09/M10, BR-06..BR-10)', () => {
     const pending = await request(app).get(`/api/v1/production/pending-approvals?factoryId=${factory.id}`).set('Cookie', adminCookie);
     expect(pending.body.data.rows.some((c) => c.id === consumption.id)).toBe(true);
 
-    const approve = await request(app).put(`/api/v1/production/consumptions/${consumption.id}/approve`).set('Cookie', adminCookie);
+    // BR-09, and the rule defaultRoles.js states: the person who recorded the
+    // consumption does not get to sign off its variance. The seeded "Production
+    // Supervisor" holds PRODUCTION_CREATE and PRODUCTION_APPROVE_VARIANCE
+    // together, so before this was enforced self-approval was the default.
+    const selfApprove = await request(app)
+      .put(`/api/v1/production/consumptions/${consumption.id}/approve`)
+      .set('Cookie', adminCookie);
+    expect(selfApprove.status).toBe(403);
+
+    const approve = await request(app).put(`/api/v1/production/consumptions/${consumption.id}/approve`).set('Cookie', approverCookie);
     expect(approve.status).toBe(200);
     expect(approve.body.data.approvedBy).toBeTruthy();
   });

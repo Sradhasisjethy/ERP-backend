@@ -26,6 +26,8 @@ PurchaseIndent.initAudited(
       defaultValue: 'DRAFT',
     },
     remarks: { type: DataTypes.TEXT, allowNull: true },
+    // Who raised it, so approval can refuse the raiser (FR-M11-1).
+    requestedBy: { type: DataTypes.UUID, allowNull: true },
     approvedBy: { type: DataTypes.UUID, allowNull: true },
     approvedAt: { type: DataTypes.DATE, allowNull: true },
     rejectionReason: { type: DataTypes.TEXT, allowNull: true },

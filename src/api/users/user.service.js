@@ -3,8 +3,44 @@ const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { User, Department, Office, Organization, AdGroupMember, AdGroup, Tenant } = require('../../models');
 const { getTenantId } = require('../../core/tenantContext');
-const { NotFoundError } = require('../../core/AppError');
+const { NotFoundError, ForbiddenError } = require('../../core/AppError');
 const emailService = require('../../services/email.service');
+const { RoleService } = require('../roles/role.service');
+const { permissionsForSystemRole } = require('../../utils/systemRolePermissions');
+const { bumpUser } = require('../../utils/permissionVersion');
+
+/**
+ * Refuses a user write that would hand out access the author does not have.
+ *
+ * The user editor is a second door onto the permission system, and it was
+ * standing open. Two fields do it:
+ *
+ *   `role`   — the system-role column. SystemRoles includes PLATFORM_ADMIN and
+ *              TENANT_OWNER, the two roles authorize.js lets past every check,
+ *              so `PUT /users/<self> {"role":"PLATFORM_ADMIN"}` was a one-request
+ *              path from an ordinary HR grant to superuser on next login.
+ *   `roleId` — AdGroup membership, i.e. exactly what RoleService.assignMember
+ *              guards. Routing it through the user editor skipped that guard.
+ *
+ * Both are checked against the same `assertGrantable` rule the role editor uses,
+ * so there is one definition of "you cannot grant what you do not hold" rather
+ * than three. A full-access actor is unaffected.
+ */
+const assertRoleAssignable = async (actor, { role, roleId }) => {
+  if (role === undefined && roleId === undefined) return;
+  if (RoleService.hasFullAccess(actor)) return;
+
+  if (role !== undefined) {
+    // What the column is worth, compared against what the author holds.
+    RoleService.assertGrantable(actor, permissionsForSystemRole(role));
+  }
+
+  if (roleId) {
+    const group = await AdGroup.findByPk(roleId);
+    if (!group) throw new NotFoundError('Role not found');
+    RoleService.assertGrantable(actor, group.permissions || []);
+  }
+};
 
 class UserService {
   async list(query) {
@@ -76,8 +112,9 @@ class UserService {
     return user;
   }
 
-  async create(data) {
+  async create(data, actor) {
     const { password, sendInvite = true, roleId, ...rest } = data;
+    await assertRoleAssignable(actor, { role: rest.role, roleId });
     
     // If password provided, hash it; otherwise generate random secure initial hash
     const rawPassword = password || crypto.randomBytes(32).toString('hex');
@@ -125,7 +162,7 @@ class UserService {
     return userJson;
   }
 
-  async update(id, data) {
+  async update(id, data, actor) {
     const user = await User.findByPk(id);
 
     if (!user) {
@@ -133,7 +170,13 @@ class UserService {
     }
 
     const { roleId, ...rest } = data;
+    await assertRoleAssignable(actor, { role: rest.role, roleId });
+    // Either field changes what this user may do, so any token they already
+    // hold has to stop working.
+    const accessChanged = rest.role !== undefined || roleId !== undefined;
     await user.update(rest);
+
+    if (accessChanged) await bumpUser(user.id);
 
     if (roleId !== undefined) {
       await AdGroupMember.destroy({ where: { employeeId: user.id } });

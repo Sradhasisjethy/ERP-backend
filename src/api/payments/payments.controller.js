@@ -49,10 +49,10 @@ const cancelPayment = asyncHandler(async (req, res) => {
 const listCheques = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, status, direction, partyId, search } = req.query;
   const data = await ChequeService.list(Number(page), Number(limit), { factoryId, status, direction, partyId, search });
-  sendList(res, req, maskRateFields(data, req, ['amountPaise', 'bankChargesPaise']), 'Cheques retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Cheques retrieved successfully');
 });
 const getCheque = asyncHandler(async (req, res) => {
-  sendSuccess(res, maskRateFields(await ChequeService.get(req.params.id), req, ['amountPaise', 'bankChargesPaise']), 'Cheque retrieved successfully');
+  sendSuccess(res, maskRateFields(await ChequeService.get(req.params.id), req), 'Cheque retrieved successfully');
 });
 const presentCheque = asyncHandler(async (req, res) => {
   sendSuccess(res, await ChequeService.present(req.params.id, req.body), 'Cheque marked presented');

@@ -59,7 +59,13 @@ beforeAll(async () => {
   await User.create({ tenantId, email: 'admin@notif-test.co', passwordHash, firstName: 'Admin', lastName: 'User', role: 'PLATFORM_ADMIN' }, { validate: false });
 
   const clerk = await User.create({ tenantId, email: 'clerk@notif-test.co', passwordHash, firstName: 'Clerk', lastName: 'User', role: 'EMPLOYEE' }, { validate: false });
-  const group = await AdGroup.create({ tenantId, name: 'Ops', permissions: [WebPermissions.INVENTORY_READ] });
+  // A broadcast alert is gated on the permission for the data it summarises, so
+  // reading an OVERDUE_RECEIVABLE alert needs RECEIPT_READ. These tests are
+  // about masking money inside the alert, not about who may see the alert.
+  const group = await AdGroup.create({
+    tenantId, name: 'Ops',
+    permissions: [WebPermissions.INVENTORY_READ, WebPermissions.RECEIPT_READ, WebPermissions.SALES_READ],
+  });
   await AdGroupMember.create({ tenantId, adGroupId: group.id, employeeId: clerk.id });
 
   await FinancialYear.create({ tenantId, code: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });

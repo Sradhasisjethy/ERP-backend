@@ -19,7 +19,7 @@ const { DocumentNumberingService } = require('../documentSeries/documentNumberin
 const { StockLedgerService } = require('../inventory/stockLedger.service');
 const { StockLot } = require('../inventory/stockLot.model');
 const { StockLedgerEntry } = require('../inventory/stockLedgerEntry.model');
-const { NotFoundError, ValidationError } = require('../../core/AppError');
+const { NotFoundError, ValidationError, ForbiddenError } = require('../../core/AppError');
 const { ACTIVE_ORDER_STATUSES } = require('../sales/sales.service');
 const { getUserId } = require('../../core/tenantContext');
 
@@ -327,6 +327,8 @@ class ProductionService {
             variancePercent,
             varianceReason: override ? override.varianceReason : null,
             requiresApproval,
+            // Recorded so approveVariance can refuse the person who did the work.
+            recordedBy: getUserId() || null,
           },
           { transaction }
         );
@@ -518,11 +520,28 @@ class ProductionService {
     });
   }
 
+  /**
+   * BR-09: signing a variance off is a separate grant from recording one, and
+   * defaultRoles.js states the rule plainly — "roles that do the work do not
+   * automatically get to approve their own". Nothing enforced it, and the
+   * seeded "Production Supervisor" holds PRODUCTION_CREATE and
+   * PRODUCTION_APPROVE_VARIANCE together, so self-approval was not merely
+   * possible but the default configuration.
+   *
+   * A null `recordedBy` is a row from before the column existed; unknown is
+   * treated as "cannot prove", not as a match.
+   */
   static async approveVariance(consumptionId) {
     const consumption = await MaterialConsumption.findByPk(consumptionId);
     if (!consumption) throw new NotFoundError('Material consumption record not found');
     if (!consumption.requiresApproval) throw new ValidationError('This consumption does not require approval');
-    return consumption.update({ approvedBy: getUserId() || null, approvedAt: new Date() });
+
+    const actor = getUserId();
+    if (actor && consumption.recordedBy && actor === consumption.recordedBy) {
+      throw new ForbiddenError('You cannot approve a material variance you recorded yourself');
+    }
+
+    return consumption.update({ approvedBy: actor || null, approvedAt: new Date() });
   }
 
   static async listPendingApprovals(page, limit, { factoryId, search } = {}) {

@@ -12,7 +12,7 @@ const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { searchWhere } = require('../../utils/pagination');
-const { NotFoundError, ValidationError } = require('../../core/AppError');
+const { NotFoundError, ValidationError, ForbiddenError } = require('../../core/AppError');
 const { getUserId } = require('../../core/tenantContext');
 
 const getCurrentFinancialYearId = async (transaction) => {
@@ -63,7 +63,7 @@ class IndentService {
       });
 
       const indent = await PurchaseIndent.create(
-        { factoryId, indentNumber: documentNumber, indentDate, requiredByDate, remarks, status: 'PENDING_APPROVAL' },
+        { factoryId, indentNumber: documentNumber, indentDate, requiredByDate, remarks, status: 'PENDING_APPROVAL', requestedBy: getUserId() || null },
         { transaction }
       );
 
@@ -76,11 +76,29 @@ class IndentService {
     });
   }
 
+  /**
+   * FR-M11-1 keeps raising an indent and approving one as separate grants. That
+   * only means anything if the same person cannot do both to the same document,
+   * and nothing stopped them: an AdGroup may hold PURCHASE_CREATE and
+   * PURCHASE_APPROVE together, and the indent did not record who raised it.
+   *
+   * A null `requestedBy` is a row written before the column existed. It is
+   * treated as unknown rather than as a match, so this refuses what it can
+   * prove and does not retroactively block historical indents.
+   */
+  static assertNotSelfApproval(indent) {
+    const actor = getUserId();
+    if (actor && indent.requestedBy && actor === indent.requestedBy) {
+      throw new ForbiddenError('You cannot approve an indent you raised yourself');
+    }
+  }
+
   static async approve(id) {
     const indent = await this.get(id);
     if (indent.status !== 'PENDING_APPROVAL') {
       throw new ValidationError(`Only an indent awaiting approval can be approved (this one is ${indent.status})`);
     }
+    this.assertNotSelfApproval(indent);
     await indent.update({ status: 'APPROVED', approvedBy: getUserId() || null, approvedAt: new Date() });
     return this.get(id);
   }
@@ -91,6 +109,7 @@ class IndentService {
     if (indent.status !== 'PENDING_APPROVAL') {
       throw new ValidationError(`Only an indent awaiting approval can be rejected (this one is ${indent.status})`);
     }
+    // Rejecting your own is allowed — that is withdrawing it, not approving it.
     await indent.update({ status: 'REJECTED', rejectionReason: reason, approvedBy: getUserId() || null, approvedAt: new Date() });
     return this.get(id);
   }
