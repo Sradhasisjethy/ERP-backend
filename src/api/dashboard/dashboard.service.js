@@ -50,8 +50,23 @@ const boundaries = async () => {
 };
 
 class DashboardService {
-  /** Widgets any authenticated user may see — quantities and counts, no money. */
-  static async getOperationalWidgets(factoryIds) {
+  /**
+   * Operational widgets, filtered to what the caller may actually read.
+   *
+   * These were described as "widgets any authenticated user may see —
+   * quantities and counts, no money", on the reasoning that BR-07 is about
+   * commercial figures. But a quantity is still data: today's output, the
+   * dispatch count, open sales orders, dead-stock lots and the variance queue
+   * are each governed by a module permission everywhere else in the product.
+   * A user granted only Masters was being shown the plant's production figures
+   * on the landing page.
+   *
+   * `can` is the same predicate `authorize` uses, so a widget appears here only
+   * if its module's list endpoint would also answer. Absent keys are simply not
+   * computed — the query never runs — so there is nothing to inspect in the
+   * response, the way the financial half already worked.
+   */
+  static async getOperationalWidgets(factoryIds, can = () => true) {
     const factoryFilter = factoryScope(factoryIds);
     const { today, monthStart } = await boundaries();
 
@@ -59,14 +74,15 @@ class DashboardService {
       productionToday, productionMTD, dispatchesToday, pendingOrders,
       curingLots, deadLots, slowMovingLots, pendingApprovals, unreadAlerts,
     ] = await Promise.all([
-      ProductionEntry.sum('goodQty', { where: { ...factoryFilter, status: 'POSTED', productionDate: today } }),
-      ProductionEntry.sum('goodQty', { where: { ...factoryFilter, status: 'POSTED', productionDate: { [Op.gte]: monthStart } } }),
-      DeliveryChallan.count({ where: { ...factoryFilter, status: 'DISPATCHED', dispatchDate: today } }),
-      SalesOrder.count({ where: { ...factoryFilter, status: { [Op.in]: ['CONFIRMED', 'IN_PRODUCTION', 'PARTIALLY_DISPATCHED'] } } }),
-      StockLot.count({ where: { ...factoryFilter, status: 'CURING' } }),
-      StockLot.count({ where: { ...factoryFilter, ageingClass: 'DEAD', qtyAvailable: { [Op.gt]: 0 } } }),
-      StockLot.count({ where: { ...factoryFilter, ageingClass: 'SLOW_MOVING', qtyAvailable: { [Op.gt]: 0 } } }),
-      MaterialConsumption.count({ where: { requiresApproval: true, approvedBy: null } }),
+      can('PRODUCTION_READ') ? ProductionEntry.sum('goodQty', { where: { ...factoryFilter, status: 'POSTED', productionDate: today } }) : null,
+      can('PRODUCTION_READ') ? ProductionEntry.sum('goodQty', { where: { ...factoryFilter, status: 'POSTED', productionDate: { [Op.gte]: monthStart } } }) : null,
+      can('DISPATCH_READ') ? DeliveryChallan.count({ where: { ...factoryFilter, status: 'DISPATCHED', dispatchDate: today } }) : null,
+      can('SALES_READ') ? SalesOrder.count({ where: { ...factoryFilter, status: { [Op.in]: ['CONFIRMED', 'IN_PRODUCTION', 'PARTIALLY_DISPATCHED'] } } }) : null,
+      can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, status: 'CURING' } }) : null,
+      can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, ageingClass: 'DEAD', qtyAvailable: { [Op.gt]: 0 } } }) : null,
+      can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, ageingClass: 'SLOW_MOVING', qtyAvailable: { [Op.gt]: 0 } } }) : null,
+      can('PRODUCTION_APPROVE_VARIANCE') ? MaterialConsumption.count({ where: { requiresApproval: true, approvedBy: null } }) : null,
+      // The caller's own unread count — personal, so not gated on a module.
       Notification.count({ where: { readAt: null } }),
     ]);
 
@@ -74,7 +90,7 @@ class DashboardService {
     // promise next week — the single most actionable number on this screen.
     const weekOut = new Date();
     weekOut.setDate(weekOut.getDate() + 7);
-    const curingSoon = await StockLot.findAll({
+    const curingSoon = can('INVENTORY_READ') ? await StockLot.findAll({
       where: {
         ...factoryFilter,
         status: 'CURING',
@@ -89,14 +105,14 @@ class DashboardService {
       include: [{ model: Product, as: 'product', attributes: ['name'] }],
       limit: 10,
       order: [['originDate', 'ASC']],
-    });
+    }) : [];
 
     // Raw materials below their reorder level (FR-M23-3).
-    const belowReorder = await Product.findAll({
+    const belowReorder = can('INVENTORY_READ') ? await Product.findAll({
       where: { productType: 'RAW_MATERIAL', reorderLevel: { [Op.gt]: 0 } },
       attributes: ['id', 'name', 'reorderLevel'],
       limit: 50,
-    });
+    }) : [];
     const reorderAlerts = [];
     for (const product of belowReorder) {
       const onHand = await StockLot.sum('qtyAvailable', {
@@ -107,35 +123,45 @@ class DashboardService {
       }
     }
 
-    const rejectionAgg = await ProductionEntry.findOne({
+    const rejectionAgg = can('QUALITY_READ') || can('PRODUCTION_READ') ? await ProductionEntry.findOne({
       attributes: [
         [fn('COALESCE', fn('SUM', col('goodQty')), 0), 'good'],
         [fn('COALESCE', fn('SUM', col('rejectedQty')), 0), 'rejected'],
       ],
       where: { ...factoryFilter, status: 'POSTED', productionDate: { [Op.gte]: monthStart } },
       raw: true,
-    });
+    }) : null;
     const good = Number(rejectionAgg?.good || 0);
     const rejected = Number(rejectionAgg?.rejected || 0);
 
-    return {
-      productionToday: Number(productionToday || 0),
-      productionMTD: Number(productionMTD || 0),
-      dispatchesToday,
-      pendingOrders,
-      curingLots,
-      deadStockLots: deadLots,
-      slowMovingLots: slowMovingLots,
-      pendingVarianceApprovals: pendingApprovals,
-      unreadAlerts,
-      rejectionPercent: good + rejected > 0 ? Number(((rejected / (good + rejected)) * 100).toFixed(2)) : 0,
-      yieldPercent: good + rejected > 0 ? Number(((good / (good + rejected)) * 100).toFixed(2)) : 100,
-      curingCompletingThisWeek: curingSoon.map((l) => ({
+    // Assembled key by key: a widget the caller has no grant for is absent from
+    // the response rather than present-and-zero, so the client has nothing to
+    // render and nothing to read.
+    const widgets = { unreadAlerts };
+
+    if (can('PRODUCTION_READ')) {
+      widgets.productionToday = Number(productionToday || 0);
+      widgets.productionMTD = Number(productionMTD || 0);
+    }
+    if (can('DISPATCH_READ')) widgets.dispatchesToday = dispatchesToday;
+    if (can('SALES_READ')) widgets.pendingOrders = pendingOrders;
+    if (can('INVENTORY_READ')) {
+      widgets.curingLots = curingLots;
+      widgets.deadStockLots = deadLots;
+      widgets.slowMovingLots = slowMovingLots;
+      widgets.reorderAlerts = reorderAlerts;
+      widgets.curingCompletingThisWeek = curingSoon.map((l) => ({
         lotId: l.id, lotNumber: l.lotNumber, productName: l.product?.name,
         quantity: Number(l.qtyAvailable), originDate: l.originDate, curingDays: l.curingDays,
-      })),
-      reorderAlerts,
-    };
+      }));
+    }
+    if (can('PRODUCTION_APPROVE_VARIANCE')) widgets.pendingVarianceApprovals = pendingApprovals;
+    if (can('QUALITY_READ') || can('PRODUCTION_READ')) {
+      widgets.rejectionPercent = good + rejected > 0 ? Number(((rejected / (good + rejected)) * 100).toFixed(2)) : 0;
+      widgets.yieldPercent = good + rejected > 0 ? Number(((good / (good + rejected)) * 100).toFixed(2)) : 100;
+    }
+
+    return widgets;
   }
 
   /**
@@ -316,9 +342,9 @@ class DashboardService {
    * Assembles the dashboard for one caller. `canViewRates` decides whether the
    * financial half is computed at all — not just whether it's displayed.
    */
-  static async getDashboard({ factoryIds, canViewRates }) {
+  static async getDashboard({ factoryIds, canViewRates, can = () => true }) {
     const [operational, trends] = await Promise.all([
-      this.getOperationalWidgets(factoryIds),
+      this.getOperationalWidgets(factoryIds, can),
       this.getTrends(factoryIds, { includeFinancial: canViewRates }),
     ]);
 

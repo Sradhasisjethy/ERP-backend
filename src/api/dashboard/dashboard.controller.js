@@ -3,6 +3,7 @@ const { DashboardService } = require('./dashboard.service');
 const { sendSuccess } = require('../../utils/response');
 const { hasViewRates } = require('../../utils/fieldMasking');
 const { getAllowedFactoryIds } = require('../../core/factoryAccess');
+const { hasPermission } = require('../../middlewares/authorize');
 
 const getStats = asyncHandler(async (req, res) => {
   // BR-29: a user only ever sees their assigned factories. `null` means the
@@ -22,7 +23,14 @@ const getStats = asyncHandler(async (req, res) => {
 
   // AC-14.1: the financial half is not computed at all for a user without
   // VIEW_RATES, so the response literally has no financial figures to inspect.
-  const data = await DashboardService.getDashboard({ factoryIds, canViewRates: hasViewRates(req) });
+  // Each operational widget is governed by the same permission as the module
+  // it summarises, so the landing page cannot become a way to read figures the
+  // user could not open the module for.
+  const data = await DashboardService.getDashboard({
+    factoryIds,
+    canViewRates: hasViewRates(req),
+    can: (permission) => hasPermission(req.user, permission),
+  });
   sendSuccess(res, data, 'Dashboard retrieved successfully');
 });
 

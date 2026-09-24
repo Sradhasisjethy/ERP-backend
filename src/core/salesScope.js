@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const { getAllowedFactoryIds, applyFactoryFilter, assertFactoryAccess } = require('./factoryAccess');
 const { NotFoundError } = require('./AppError');
 
@@ -42,4 +43,46 @@ const assertCanSeeRecord = async (req, record, notFoundMessage) => {
   return record;
 };
 
-module.exports = { scopeListToFactories, assertCanUseFactory, assertCanSeeRecord };
+/**
+ * The same rule for a document that names *two* locations — a stock transfer
+ * has `fromFactoryId` and `toFactoryId` and no plain `factoryId`, so
+ * applyFactoryFilter has nothing to match on and `scopeListToFactories` was
+ * silently a no-op for it. (The transfer service already accepted a `baseWhere`
+ * for exactly this; the controller never passed one.)
+ *
+ * A transfer is visible when *either* end is a location the caller can see:
+ * both the despatching and the receiving plant have a legitimate interest in
+ * it, and a transfer only one of them could see would be invisible to the
+ * other.
+ */
+const scopeListToEitherFactory = async (req, where = {}) => {
+  const allowed = await getAllowedFactoryIds(req);
+  if (allowed === null) return where;
+
+  const ids = allowed.length ? allowed : ['00000000-0000-0000-0000-000000000000'];
+  return {
+    ...where,
+    [Op.and]: [
+      ...(where[Op.and] || []),
+      { [Op.or]: [{ fromFactoryId: { [Op.in]: ids } }, { toFactoryId: { [Op.in]: ids } }] },
+    ],
+  };
+};
+
+/** Guards one two-location record. 404 for the reason assertCanSeeRecord is. */
+const assertCanSeeTransfer = async (req, record, notFoundMessage) => {
+  const allowed = await getAllowedFactoryIds(req);
+  if (allowed === null) return record;
+  const visible =
+    record && (allowed.includes(record.fromFactoryId) || allowed.includes(record.toFactoryId));
+  if (!visible) throw new NotFoundError(notFoundMessage);
+  return record;
+};
+
+module.exports = {
+  scopeListToFactories,
+  assertCanUseFactory,
+  assertCanSeeRecord,
+  scopeListToEitherFactory,
+  assertCanSeeTransfer,
+};

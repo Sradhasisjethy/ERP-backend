@@ -191,13 +191,13 @@ const remove = asyncHandler(async (req, res) => {
 
 const run = asyncHandler(async (req, res) => {
   const { reportType, params } = req.body;
-  const result = await ReportsService.run(reportType, params);
+  const result = await ReportsService.run(reportType, params, req);
   sendSuccess(res, maskResult(reportType, result, req), 'Report generated successfully');
 });
 
 const runSaved = asyncHandler(async (req, res) => {
   const report = await ReportsService.get(req.params.id);
-  const result = await ReportsService.runSaved(req.params.id, req.body.params);
+  const result = await ReportsService.runSaved(req.params.id, req.body.params, req);
   sendSuccess(res, maskResult(report.reportType, result, req), 'Report generated successfully');
 });
 
@@ -208,7 +208,7 @@ const runSaved = asyncHandler(async (req, res) => {
  */
 const exportSavedReport = asyncHandler(async (req, res) => {
   const { reportType, params, format = 'csv' } = req.body;
-  const raw = await ReportsService.run(reportType, params);
+  const raw = await ReportsService.run(reportType, params, req);
   const masked = maskResult(reportType, raw, req);
 
   const spec = REPORT_COLUMNS[reportType];

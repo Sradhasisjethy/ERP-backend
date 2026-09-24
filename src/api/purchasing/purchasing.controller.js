@@ -94,23 +94,42 @@ const listIndents = asyncHandler(async (req, res) => {
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   sendList(res, req, await IndentService.list(Number(page), Number(limit), { status, search, baseWhere }), 'Purchase indents retrieved successfully');
 });
+/**
+ * BR-29 for indents, the same way guardPO does it for purchase orders.
+ *
+ * The indent handlers were the one group in this file that never got it: the
+ * list was scoped, but every single-record operation — read, approve, reject,
+ * cancel, convert — took a bare `:id` and acted on it. A buyer assigned to
+ * Plant B could approve Plant A's indents and convert them into purchase
+ * orders. 404 rather than 403 is deliberate and matches assertCanSeeRecord:
+ * confirming an id exists elsewhere leaks document volumes across locations.
+ */
+const guardIndent = async (req) =>
+  assertCanSeeRecord(req, await IndentService.get(req.params.id), 'Purchase indent not found');
+
 const getIndent = asyncHandler(async (req, res) => {
-  sendSuccess(res, await IndentService.get(req.params.id), 'Purchase indent retrieved successfully');
+  const data = await IndentService.get(req.params.id);
+  await assertCanSeeRecord(req, data, 'Purchase indent not found');
+  sendSuccess(res, data, 'Purchase indent retrieved successfully');
 });
 const createIndent = asyncHandler(async (req, res) => {
   await assertCanUseFactory(req, req.body.factoryId);
   sendSuccess(res, await IndentService.create(req.body), 'Purchase indent raised successfully', 201);
 });
 const approveIndent = asyncHandler(async (req, res) => {
+  await guardIndent(req);
   sendSuccess(res, await IndentService.approve(req.params.id), 'Purchase indent approved');
 });
 const rejectIndent = asyncHandler(async (req, res) => {
+  await guardIndent(req);
   sendSuccess(res, await IndentService.reject(req.params.id, req.body.reason), 'Purchase indent rejected');
 });
 const cancelIndent = asyncHandler(async (req, res) => {
+  await guardIndent(req);
   sendSuccess(res, await IndentService.cancel(req.params.id, req.body.reason), 'Purchase indent cancelled');
 });
 const convertIndent = asyncHandler(async (req, res) => {
+  await guardIndent(req);
   sendSuccess(res, await IndentService.convertToPurchaseOrder(req.params.id, req.body), 'Purchase order created from indent', 201);
 });
 
@@ -118,7 +137,7 @@ const convertIndent = asyncHandler(async (req, res) => {
 const threeWayMatch = asyncHandler(async (req, res) => {
   const data = await IndentService.threeWayMatch(req.params.id);
   // BR-27: the match report is money end to end.
-  sendSuccess(res, maskRateFields(data, req, ['receiptValuePaise', 'invoiceValuePaise', 'valueVariancePaise']), 'Three-way match retrieved successfully');
+  sendSuccess(res, maskRateFields(data, req), 'Three-way match retrieved successfully');
 });
 
 module.exports = {

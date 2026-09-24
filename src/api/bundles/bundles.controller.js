@@ -4,13 +4,6 @@ const { maskRateFields } = require('../../utils/fieldMasking');
 const { BundleExpansionService } = require('./bundleExpansion.service');
 
 /** Money fields the preview introduces, masked per BR-27 like every other rate. */
-const BUNDLE_RATE_FIELDS = [
-  'unitPricePaise',
-  'systemUnitPricePaise',
-  'taxableAmountPaise',
-  'taxPaise',
-  'lineTotalPaise',
-];
 
 /**
  * GET /products/:id/bundle-preview
@@ -38,11 +31,9 @@ const previewBundle = asyncHandler(async (req, res) => {
     res,
     {
       ...plan,
-      components: maskRateFields(plan.components, req, BUNDLE_RATE_FIELDS),
+      components: maskRateFields(plan.components, req),
       // The header summary is money too, so it goes with the rest.
-      totals: maskRateFields(plan.totals, req, [
-        'taxableAmountPaise', 'taxPaise', 'componentsTotalPaise', 'taxSummary',
-      ]),
+      totals: maskRateFields(plan.totals, req),
     },
     plan.bundleRuleId ? 'Bundle preview retrieved successfully' : 'Product has no active bundle'
   );

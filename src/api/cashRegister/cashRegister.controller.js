@@ -4,22 +4,17 @@ const { CashRegisterService, DENOMINATIONS } = require('./cashRegister.service')
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
 
-const MONEY = [
-  'openingCountedPaise', 'openingExpectedPaise', 'openingVariancePaise',
-  'closingCountedPaise', 'closingExpectedPaise', 'closingVariancePaise',
-  'totalInPaise', 'totalOutPaise', 'expectedNowPaise', 'countedSoFarPaise',
-];
 
 const maskDetail = (session, req) => ({
-  ...maskRateFields(session, req, MONEY),
-  movements: maskRateFields(session.movements || [], req, ['inPaise', 'outPaise']),
+  ...maskRateFields(session, req),
+  movements: maskRateFields(session.movements || [], req),
 });
 
 const list = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, status } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await CashRegisterService.list(Number(page), Number(limit), { status, baseWhere });
-  sendList(res, req, maskRateFields(data, req, MONEY), 'Cash register sessions retrieved');
+  sendList(res, req, maskRateFields(data, req), 'Cash register sessions retrieved');
 });
 
 /** The open session at a till, or null — what the counter screen asks on load. */
@@ -37,12 +32,12 @@ const get = asyncHandler(async (req, res) => {
 
 const open = asyncHandler(async (req, res) => {
   await assertCanUseFactory(req, req.body.factoryId);
-  sendSuccess(res, maskRateFields(await CashRegisterService.openSession(req.body), req, MONEY), 'Till opened', 201);
+  sendSuccess(res, maskRateFields(await CashRegisterService.openSession(req.body), req), 'Till opened', 201);
 });
 
 const close = asyncHandler(async (req, res) => {
   await assertCanSeeRecord(req, await CashRegisterService.get(req.params.id), 'Cash register session not found');
-  sendSuccess(res, maskRateFields(await CashRegisterService.closeSession(req.params.id, req.body), req, MONEY), 'Till closed');
+  sendSuccess(res, maskRateFields(await CashRegisterService.closeSession(req.params.id, req.body), req), 'Till closed');
 });
 
 /** The note and coin values the count screen offers. */

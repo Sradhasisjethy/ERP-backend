@@ -124,7 +124,7 @@ const explodeMixDesign = asyncHandler(async (req, res) => {
 const mixDesignCost = asyncHandler(async (req, res) => {
   const data = await BomService.costRollup(req.params.id);
   // BR-27: a cost rollup is money end to end.
-  sendSuccess(res, maskRateFields(data, req, ['totalCostPaise']), 'Mix design cost retrieved successfully');
+  sendSuccess(res, maskRateFields(data, req), 'Mix design cost retrieved successfully');
 });
 
 // --- UoM conversions (FR-M03-2) ---

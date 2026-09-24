@@ -20,6 +20,7 @@ const {
 
 const PASSWORD = 'password123';
 let cookie;
+let approverCookie;
 let ctx;
 
 const extractCookie = (res, name) => {
@@ -30,6 +31,12 @@ const extractCookie = (res, name) => {
 const get = (p) => request(app).get(p).set('Cookie', cookie);
 const post = (p, b) => request(app).post(p).set('Cookie', cookie).send(b);
 const put = (p, b) => request(app).put(p).set('Cookie', cookie).send(b || {});
+/**
+ * A second administrator, for the one step the buyer may not perform on their
+ * own document: approving the indent they raised (FR-M11-1). Before that rule
+ * was enforced, this whole flow ran as a single user.
+ */
+const putAsApprover = (p, b) => request(app).put(p).set('Cookie', approverCookie).send(b || {});
 
 /** Payable balance for a party from the general ledger, credit-positive. */
 const payable = async (partyId) => {
@@ -47,11 +54,16 @@ beforeAll(async () => {
     { tenantId, email: 'admin@pflow.test', passwordHash, firstName: 'Admin', lastName: 'User', role: 'PLATFORM_ADMIN' },
     { validate: false }
   );
+  await User.create(
+    { tenantId, email: 'approver@pflow.test', passwordHash, firstName: 'Ann', lastName: 'Approver', role: 'PLATFORM_ADMIN' },
+    { validate: false }
+  );
   await FinancialYear.create({ tenantId, code: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
   const factory = await Factory.create({ tenantId, organizationId: org.id, name: 'Flow Plant', code: 'FP', state: 'Odisha' });
   const uom = await Uom.create({ tenantId, name: 'Numbers', code: 'NOS' });
   ctx = { tenantId, factory, uom };
   cookie = extractCookie(await request(app).post('/api/v1/auth/login').send({ email: 'admin@pflow.test', password: PASSWORD }), 'accessToken');
+  approverCookie = extractCookie(await request(app).post('/api/v1/auth/login').send({ email: 'approver@pflow.test', password: PASSWORD }), 'accessToken');
 });
 
 afterAll(async () => {
@@ -91,7 +103,8 @@ describe('Purchase Management — complete business flow', () => {
     expect(indent.status).toBe(201);
     expect(indent.body.data.status).toBe('PENDING_APPROVAL');
 
-    const approved = await put(`/api/v1/purchasing/indents/${indent.body.data.id}/approve`);
+    // Approved by someone other than the buyer who raised it.
+    const approved = await putAsApprover(`/api/v1/purchasing/indents/${indent.body.data.id}/approve`);
     expect(approved.body.data.status).toBe('APPROVED');
 
     const po = await post(`/api/v1/purchasing/indents/${indent.body.data.id}/convert`, {

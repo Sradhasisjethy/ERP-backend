@@ -22,10 +22,10 @@ const listContractorEntries = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, contractorPartyId, search } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await WorkforceService.listContractorEntries(Number(page), Number(limit), { contractorPartyId, search, baseWhere });
-  sendList(res, req, maskRateFields(data, req, ['pieceRatePaise', 'totalValuePaise']), 'Contractor production entries retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Contractor production entries retrieved successfully');
 });
 const getContractorEntry = asyncHandler(async (req, res) => {
-  sendSuccess(res, maskRateFields(await WorkforceService.getContractorEntry(req.params.id), req, ['pieceRatePaise', 'totalValuePaise']), 'Contractor production entry retrieved successfully');
+  sendSuccess(res, maskRateFields(await WorkforceService.getContractorEntry(req.params.id), req), 'Contractor production entry retrieved successfully');
 });
 const createContractorEntry = asyncHandler(async (req, res) => {
   sendSuccess(res, await WorkforceService.createContractorProductionEntry(req.body), 'Contractor production entry posted successfully', 201);
@@ -36,7 +36,7 @@ const listAttendance = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, labourPartyId, search } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await WorkforceService.listAttendance(Number(page), Number(limit), { labourPartyId, search, baseWhere });
-  sendList(res, req, maskRateFields(data, req, ['wageAccruedPaise']), 'Attendance retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Attendance retrieved successfully');
 });
 const markAttendance = asyncHandler(async (req, res) => {
   sendSuccess(res, await WorkforceService.markAttendance(req.body), 'Attendance marked successfully', 201);
@@ -47,7 +47,7 @@ const listAdvances = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, partyId, search } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await WorkforceService.listAdvances(Number(page), Number(limit), { partyId, search, baseWhere });
-  sendList(res, req, maskRateFields(data, req, ['amountPaise']), 'Advances retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Advances retrieved successfully');
 });
 const createAdvance = asyncHandler(async (req, res) => {
   sendSuccess(res, await WorkforceService.createAdvance(req.body), 'Advance posted successfully', 201);

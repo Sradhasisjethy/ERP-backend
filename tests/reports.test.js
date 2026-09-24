@@ -38,12 +38,27 @@ beforeAll(async () => {
   const clerkGroup = await AdGroup.create({
     tenantId,
     name: 'Report Viewers',
-    permissions: [WebPermissions.REPORT_READ, WebPermissions.REPORT_WRITE, WebPermissions.ANALYTICS_READ],
+    // REPORT_READ says you may use the report builder; it does not say which
+    // data you may point it at. The module grant for each report the tests run
+    // is now required alongside it, so this clerk carries them — these tests are
+    // about BR-27 masking, not about who may open the report.
+    permissions: [
+      WebPermissions.REPORT_READ,
+      WebPermissions.REPORT_WRITE,
+      WebPermissions.ANALYTICS_READ,
+      WebPermissions.LEDGER_READ,
+      WebPermissions.INVENTORY_READ,
+    ],
   });
   await AdGroupMember.create({ tenantId, adGroupId: clerkGroup.id, employeeId: clerk.id });
 
   await FinancialYear.create({ tenantId, code: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
   factory = await Factory.create({ tenantId, organizationId: org.id, name: 'Reports Factory', code: 'RPT-FAC', state: 'Odisha' });
+  // BR-29: the saved-report runners are factory-scoped now, so a clerk reading
+  // this plant's figures has to be assigned to this plant. Before that check
+  // existed, any REPORT_READ holder could name any factory's id.
+  const { UserFactory } = require('../src/api/factory/userFactory.model');
+  await UserFactory.create({ tenantId, userId: clerk.id, factoryId: factory.id });
 
   const uom = await Uom.create({ tenantId, name: 'Numbers', code: 'NOS-RPT' });
   const hsn = await HsnCode.create({ tenantId, code: '6810', description: 'Precast', gstRatePercent: 18 });
