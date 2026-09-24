@@ -109,8 +109,23 @@ app.get('/health/live', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Serve local uploads
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+/**
+ * Local uploads, served per-directory rather than as one open tree.
+ *
+ * This was `app.use('/uploads', express.static(...))`, mounted ahead of every
+ * router, so the whole directory was public: no authentication, no tenant
+ * check. `uploads/employees/` holds offer letters, contracts and ID scans, and
+ * the permission check on the document *list* only decided who was told the
+ * address — once known, the file was readable by anyone, from any tenant,
+ * logged in or not, forever.
+ *
+ * Employee documents now go through GET /api/v1/users/:id/documents/:id/file,
+ * which applies the same grant as the list and streams them as attachments.
+ * What stays here is what is genuinely public or near-harmless: the brand marks
+ * the login page needs before anyone has a session, and avatars.
+ */
+app.use('/uploads/assets', express.static(path.join(__dirname, '../uploads/assets')));
+app.use('/uploads/avatars', express.static(path.join(__dirname, '../uploads/avatars')));
 
 /**
  * Readiness: can this instance actually serve traffic?

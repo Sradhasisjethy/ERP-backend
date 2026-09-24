@@ -7,12 +7,12 @@ const { maskRateFields } = require('../../utils/fieldMasking');
 const listParties = asyncHandler(async (req, res) => {
   const { page, limit, search, status, partyType, sortBy, sortDir } = req.query;
   const data = await PartiesService.listParties(Number(page), Number(limit), { search, status, partyType, sortBy, sortDir });
-  sendList(res, req, maskRateFields(data, req, ['creditLimitPaise']), 'Parties retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Parties retrieved successfully');
 });
 
 const getParty = asyncHandler(async (req, res) => {
   const data = await PartiesService.getParty(req.params.id);
-  sendSuccess(res, maskRateFields(data, req, ['creditLimitPaise']), 'Party retrieved successfully');
+  sendSuccess(res, maskRateFields(data, req), 'Party retrieved successfully');
 });
 
 const createParty = asyncHandler(async (req, res) => {
@@ -30,7 +30,7 @@ const deleteParty = asyncHandler(async (req, res) => {
 
 const upsertWageProfile = asyncHandler(async (req, res) => {
   const data = await PartiesService.upsertWageProfile(req.params.id, req.body);
-  sendSuccess(res, maskRateFields(data, req, ['dailyWagePaise']), 'Wage profile saved successfully');
+  sendSuccess(res, maskRateFields(data, req), 'Wage profile saved successfully');
 });
 
 // --- FR-M04-2: addresses per party, each with a state code driving GST ---

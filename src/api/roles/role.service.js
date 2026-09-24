@@ -10,6 +10,7 @@ const {
   expandPermissions,
   normalizePermissions,
 } = require('../../utils/permissionCatalog');
+const { bumpUser, bumpRoleMembers } = require('../../utils/permissionVersion');
 
 const BYPASS_ROLES = [SystemRoles.PLATFORM_ADMIN, SystemRoles.TENANT_OWNER];
 
@@ -91,13 +92,98 @@ class RoleService {
     if (data.permissions === undefined) return role.update(data);
 
     this.assertGrantable(actor, data.permissions, role.permissions || []);
-    return role.update({ ...data, permissions: normalizePermissions(data.permissions) });
+    const updated = await role.update({ ...data, permissions: normalizePermissions(data.permissions) });
+    // Everyone holding this role is now carrying a token that describes the old
+    // grant, so retire those tokens rather than wait out the hour.
+    await bumpRoleMembers(role.id);
+    return updated;
   }
 
-  static async deleteRole(id) {
+  /**
+   * Deleting a role is not the mirror of editing one.
+   *
+   * `assertGrantable` deliberately lets a limited author *remove* a permission
+   * they could not grant, because that only reduces access. Deleting the whole
+   * role does not reduce the actor's access — it strips it from everyone else
+   * who held it, silently and with no way back. Two rules follow:
+   *
+   *  1. You may not delete a role that out-ranks you. Otherwise ROLE_DELETE is
+   *     a way to disable administrators more powerful than yourself, which is
+   *     the same threat assertGrantable exists to stop, pointed the other way.
+   *  2. The last role carrying the wildcard cannot go. A tenant ships with a
+   *     seeded "Platform Admin" role holding `*`, nothing marked it as special,
+   *     and deleting it locked the tenant out of its own administration with a
+   *     single request — recoverable only by direct database access.
+   */
+  static async deleteRole(id, actor) {
     const role = await this.getRole(id);
+
+    this.assertGrantable(actor, role.permissions || []);
+
+    if ((role.permissions || []).includes(WILDCARD)) {
+      const remaining = await AdGroup.count({
+        where: { id: { [Op.ne]: role.id }, status: 'active', permissions: { [Op.contains]: [WILDCARD] } },
+      });
+      if (remaining === 0) {
+        throw new ForbiddenError(
+          'This is the last role with full access. Deleting it would leave the tenant with no administrator — create another first.'
+        );
+      }
+    }
+
+    // Read the membership before the rows go, then retire their tokens.
+    await bumpRoleMembers(role.id);
     await role.destroy();
     return true;
+  }
+
+  /**
+   * Where a user's access actually comes from.
+   *
+   * Administration > Roles shows role rows, which is only part of the picture:
+   * the `users.role` column grants permissions of its own through
+   * permissionsForSystemRole, from code rather than from a row. That is how
+   * ORG_ADMIN came to hold the entire catalog with nothing in the UI to show
+   * it and no way to take it back. Splitting the answer by source means an
+   * administrator can see *why* someone can do something, not just that they
+   * can — and the brief's "effective permissions" view has something to render.
+   */
+  static async effectivePermissionsFor(userId) {
+    const { permissionsForSystemRole } = require('../../utils/systemRolePermissions');
+
+    const user = await User.findByPk(userId, { attributes: ['id', 'firstName', 'lastName', 'email', 'role'] });
+    if (!user) throw new NotFoundError('User not found');
+
+    const memberships = await AdGroupMember.findAll({
+      where: { employeeId: userId },
+      include: [{ model: AdGroup, attributes: ['id', 'name', 'status', 'permissions'] }],
+    });
+
+    const fromSystemRole = expandPermissions(permissionsForSystemRole(user.role));
+    const roles = memberships
+      .filter((m) => m.AdGroup)
+      .map((m) => ({
+        id: m.AdGroup.id,
+        name: m.AdGroup.name,
+        status: m.AdGroup.status,
+        // An inactive role contributes nothing, and saying so is more useful
+        // than quietly omitting it.
+        applied: m.AdGroup.status === 'active',
+        permissions: expandPermissions(m.AdGroup.permissions || []),
+      }));
+
+    const effective = expandPermissions([
+      ...permissionsForSystemRole(user.role),
+      ...roles.filter((r) => r.applied).flatMap((r) => r.permissions),
+    ]);
+
+    return {
+      user: { id: user.id, name: `${user.firstName || ''} ${user.lastName || ''}`.trim(), email: user.email },
+      systemRole: user.role,
+      fromSystemRole,
+      roles,
+      effective: effective.sort(),
+    };
   }
 
   static async getMembers(adGroupId) {
@@ -108,12 +194,27 @@ class RoleService {
     });
   }
 
-  static async assignMember(adGroupId, employeeId) {
+  /**
+   * Putting someone into a role hands them that role's permissions, so it is a
+   * grant and has to clear the same bar as authoring one.
+   *
+   * assertGrantable used to protect only the authoring routes, which left the
+   * shorter road open: a tenant ships a seeded "Platform Admin" role carrying
+   * `*`, GET /roles hands its id to any ROLE_READ holder, and ROLE_CREATE was
+   * enough to POST yourself into it. One request, re-login, superuser — without
+   * ever minting a role assertGrantable would have refused.
+   *
+   * `existing` is deliberately not passed: the member holds none of this role's
+   * permissions yet, so every one of them is being added.
+   */
+  static async assignMember(adGroupId, employeeId, actor) {
     const role = await this.getRole(adGroupId);
+    this.assertGrantable(actor, role.permissions || []);
     const [member] = await AdGroupMember.findOrCreate({
       where: { adGroupId: role.id, employeeId },
       defaults: { adGroupId: role.id, employeeId },
     });
+    await bumpUser(employeeId);
     return member;
   }
 
@@ -121,6 +222,8 @@ class RoleService {
     const member = await AdGroupMember.findOne({ where: { adGroupId, employeeId } });
     if (!member) throw new NotFoundError('Member not found in role');
     await member.destroy();
+    // The point of removing someone is that they lose the access now.
+    await bumpUser(employeeId);
     return true;
   }
 }

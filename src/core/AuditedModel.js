@@ -64,6 +64,16 @@ class BaseAuditedModel extends BaseScopedModel {
           });
           await recordAudit('UPDATE', instance.id, sanitize(before), sanitize(after), options);
         },
+        /**
+         * There was no destroy hook at all, so no delete anywhere in the system
+         * left a trace — including deleting a role, which silently strips every
+         * one of its members' access. A delete is the one action whose evidence
+         * cannot be reconstructed from the row afterwards, so the snapshot goes
+         * in `before` and there is no `after`.
+         */
+        afterDestroy: async (instance, options) => {
+          await recordAudit('DELETE', instance.id, sanitize(instance.toJSON()), null, options);
+        },
         ...(modelHooks || {}),
       },
     });

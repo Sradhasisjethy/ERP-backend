@@ -6,6 +6,7 @@ const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
 const {
   getPermissionCatalog,
+  getEffectivePermissions,
   listRoles,
   getRole,
   createRole,
@@ -30,6 +31,14 @@ roleRouter.use(authenticate, tenantScope, auditContext);
 
 // Before '/:id' so the literal path isn't swallowed by the id route.
 roleRouter.get('/permission-catalog', authorize('ROLE_READ'), getPermissionCatalog);
+
+// Before '/:id' for the same reason the catalog route is.
+// Reading it needs both grants: it names a user and it names their access.
+roleRouter.get(
+  '/effective-permissions/:userId',
+  authorize('ROLE_READ', 'EMPLOYEE_READ'),
+  getEffectivePermissions
+);
 
 roleRouter.get('/', authorize('ROLE_READ'), validate(listQuerySchema, 'query'), listRoles);
 roleRouter.post('/', authorize('ROLE_CREATE'), validate(createRoleSchema), createRole);

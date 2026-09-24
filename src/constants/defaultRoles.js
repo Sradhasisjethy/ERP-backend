@@ -23,6 +23,14 @@
  *    material variance and signing it off (BR-09). Roles that do the work do
  *    not automatically get to approve their own.
  *
+ *    That last sentence is now enforced on the *record*, not the grant: the
+ *    services refuse an approver who is the person who raised the document
+ *    (IndentService.assertNotSelfApproval, ProductionService.approveVariance,
+ *    HrService.decideLeave). Until they did, this was only a convention, and
+ *    Production Supervisor below — which deliberately holds both
+ *    PRODUCTION_CREATE and PRODUCTION_APPROVE_VARIANCE so that two supervisors
+ *    sign off each other's work — was in practice self-approving.
+ *
  * These are a starting point, not a straitjacket — every one is editable in
  * Administration > Roles & Permissions, and a plant that splits duties
  * differently should.

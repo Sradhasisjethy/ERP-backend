@@ -39,13 +39,12 @@ const updateAccount = asyncHandler(async (req, res) => {
   sendSuccess(res, await AccountsService.update(req.params.id, req.body), 'Account updated successfully');
 });
 
-const VOUCHER_MONEY = ['totalPaise'];
 
 const listVouchers = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, voucherType, status, search } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await JournalVoucherService.list(Number(page), Number(limit), { voucherType, status, search, baseWhere });
-  sendList(res, req, maskRateFields(data, req, VOUCHER_MONEY), 'Vouchers retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Vouchers retrieved successfully');
 });
 
 const maskVoucher = (voucher, req) => {
@@ -81,7 +80,7 @@ const getTrialBalance = asyncHandler(async (req, res) => {
   if (req.query.factoryId) await assertCanUseFactory(req, req.query.factoryId);
   const allowed = await getAllowedFactoryIds(req);
   const data = await LedgerService.getTrialBalance(req.query.factoryId, allowed);
-  sendSuccess(res, maskRateFields(data, req, ['totalDebitPaise', 'totalCreditPaise', 'balancePaise']), 'Trial balance retrieved successfully');
+  sendSuccess(res, maskRateFields(data, req), 'Trial balance retrieved successfully');
 });
 
 const getPartyLedger = asyncHandler(async (req, res) => {
@@ -101,7 +100,7 @@ const getPartyLedger = asyncHandler(async (req, res) => {
     res,
     req,
     {
-      rows: maskRateFields(ledger.rows, req, MONEY_ROW_FIELDS),
+      rows: maskRateFields(ledger.rows, req),
       count: ledger.count,
       outstandingPaise: visible ? outstanding : null,
       openingBalancePaise: visible ? ledger.openingBalancePaise : null,
@@ -125,7 +124,7 @@ const getCashBook = asyncHandler(async (req, res) => {
       closingBalancePaise: visible ? book.closingBalancePaise : null,
       totalInPaise: visible ? book.totalInPaise : null,
       totalOutPaise: visible ? book.totalOutPaise : null,
-      rows: maskRateFields(book.rows, req, ['debitPaise', 'creditPaise', 'runningBalancePaise']),
+      rows: maskRateFields(book.rows, req),
     },
     'Cash book retrieved successfully'
   );
