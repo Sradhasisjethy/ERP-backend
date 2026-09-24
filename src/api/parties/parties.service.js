@@ -51,7 +51,7 @@ const partyDependencies = () => {
 const SORTABLE = ['name', 'code', 'partyType', 'city', 'state', 'status', 'creditLimitPaise', 'createdAt'];
 
 class PartiesService {
-  static async listParties(page, limit, { search, status, partyType, sortBy, sortDir } = {}) {
+  static async listParties(page, limit, { search, status, partyType, partyTypes, sortBy, sortDir } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
     if (search) {
@@ -65,7 +65,11 @@ class PartiesService {
       ];
     }
     if (status) where.status = status;
-    if (partyType) where.partyType = partyType;
+    // `partyTypes` narrows to several kinds at once, for pickers like "Vendor /
+    // Contractor / Labour" that would otherwise have to ask for every party and
+    // offer customers on a money-out form.
+    if (Array.isArray(partyTypes) && partyTypes.length) where.partyType = { [Op.in]: partyTypes };
+    else if (partyType) where.partyType = partyType;
 
     return Party.findAndCountAll({
       where,

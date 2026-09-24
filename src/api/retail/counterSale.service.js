@@ -15,6 +15,8 @@ const { ReservationService } = require('../inventory/reservation.service');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { LedgerService } = require('../ledger/ledger.service');
 const { PaymentsService } = require('../payments/payments.service');
+const { PaymentAllocation } = require('../payments/paymentAllocation.model');
+const { Receipt } = require('../payments/receipt.model');
 const { PricingService } = require('../pricing/pricing.service');
 const { BundleExpansionService } = require('../bundles/bundleExpansion.service');
 const { OverrideReasonCode } = require('../bundles/overrideReasonCode.model');
@@ -611,6 +613,55 @@ class CounterSaleService {
         receipt,
         customer: resolvedCustomer,
         removedAccessories: removals,
+      };
+    });
+  }
+
+  /**
+   * Undoes a counter sale the way it was made — in one act.
+   *
+   * A counter sale is goods out and money in together, so reversing it has to
+   * be goods back and money back together. Doing it through the two underlying
+   * screens is a trap: the invoice refuses to cancel while a receipt is
+   * allocated to it, and cancelling the receipt first leaves the sale posted
+   * and reading as unpaid, repairable only by keying a manual receipt in the
+   * finance module. Someone at a counter should never have to know that.
+   *
+   * The pieces are the existing services, so the journal reversal, the GST and
+   * the stock all move exactly as they do anywhere else — this only guarantees
+   * the order, and that both halves happen or neither does.
+   */
+  static async cancelCounterSale(invoiceId, reason) {
+    if (!reason) throw new ValidationError('A cancellation reason is required');
+
+    const invoice = await SalesInvoice.findByPk(invoiceId);
+    if (!invoice) throw new NotFoundError('Counter sale not found');
+    if (invoice.saleChannel !== 'COUNTER') {
+      throw new ValidationError(`${invoice.invoiceNumber} is not a counter sale — cancel it from the invoice screen.`);
+    }
+    if (invoice.status !== 'POSTED') {
+      throw new ValidationError(`Only a POSTED counter sale can be cancelled (current status: ${invoice.status})`);
+    }
+
+    return sequelize.transaction(async () => {
+      // The money first: the invoice will not cancel while it is allocated.
+      const allocations = await PaymentAllocation.findAll({
+        where: { invoiceType: 'SALES', invoiceId: invoice.id },
+      });
+      const receipts = allocations.length
+        ? await Receipt.findAll({ where: { id: { [Op.in]: allocations.map((a) => a.receiptId) }, status: 'POSTED' } })
+        : [];
+
+      for (const receipt of receipts) {
+        await PaymentsService.cancelReceipt(receipt.id, reason, { fromCounterSale: true });
+      }
+
+      // Then the sale, which reverses its journal and puts the stock back.
+      await InvoicingService.cancelInvoice(invoice.id, reason);
+
+      return {
+        invoice: await InvoicingService.getInvoice(invoice.id),
+        cancelledReceipts: receipts.map((receipt) => receipt.receiptNumber),
       };
     });
   }

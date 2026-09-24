@@ -90,6 +90,23 @@ const listQuerySchema = z.object({
   sortDir: z.enum(['asc', 'desc']).optional(),
   status: z.enum(['active', 'inactive']).optional(),
   partyType: z.enum(['CUSTOMER', 'VENDOR', 'CONTRACTOR', 'LABOUR', 'SALES_REF']).optional(),
+  /**
+   * Several kinds at once, comma separated — `VENDOR,CONTRACTOR,LABOUR`.
+   *
+   * A payment goes to a vendor, a contractor or a labourer, and the picker for
+   * it says exactly that. With only the single `partyType` filter the screen
+   * had to ask for every party and offer customers on a money-out form.
+   */
+  partyTypes: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .transform((value) => (value ? value.split(',').map((part) => part.trim()).filter(Boolean) : undefined))
+    .refine(
+      (types) => !types || types.every((type) => ['CUSTOMER', 'VENDOR', 'CONTRACTOR', 'LABOUR', 'SALES_REF'].includes(type)),
+      { message: 'partyTypes must be a comma separated list of party types' }
+    ),
 });
 
 // FR-M04-2. stateCode is optional on input — the service derives it from the

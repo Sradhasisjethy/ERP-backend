@@ -294,10 +294,54 @@ class PaymentsService {
     return outerTransaction ? post(outerTransaction) : sequelize.transaction(post);
   }
 
-  static async cancelReceipt(id, reason) {
+  /**
+   * Is this receipt the money half of a counter sale that is still standing?
+   *
+   * A counter sale is one act — goods out and cash in, across a counter, in one
+   * motion. Cancelling only the receipt leaves the invoice posted and unpaid,
+   * and the only way to put that right is a manual receipt from the finance
+   * screens, which is precisely what a counter sale exists to avoid. It is also
+   * a trap rather than a choice: cancelling the invoice first is refused while
+   * money is allocated to it, so the two-step is the only route and stopping
+   * halfway leaves the books saying a paid sale is owing.
+   */
+  static async counterSaleSettledBy(receiptId, transaction) {
+    const allocations = await PaymentAllocation.findAll({
+      where: { receiptId, invoiceType: 'SALES' },
+      transaction,
+    });
+    if (!allocations.length) return null;
+
+    return SalesInvoice.findOne({
+      where: {
+        id: { [Op.in]: allocations.map((allocation) => allocation.invoiceId) },
+        saleChannel: 'COUNTER',
+        status: 'POSTED',
+      },
+      transaction,
+    });
+  }
+
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.fromCounterSale] set only by
+   *   `CounterSaleService.cancelCounterSale`, which is cancelling the sale and
+   *   its payment together and so is the one caller allowed past the guard
+   *   below.
+   */
+  static async cancelReceipt(id, reason, { fromCounterSale = false } = {}) {
     const receipt = await this.getReceipt(id);
     if (receipt.status !== 'POSTED') throw new ValidationError(`Only a POSTED receipt can be cancelled (current status: ${receipt.status})`);
     if (!reason) throw new ValidationError('A cancellation reason is required');
+
+    const counterSale = fromCounterSale ? null : await this.counterSaleSettledBy(receipt.id);
+    if (counterSale) {
+      throw new ValidationError(
+        `${receipt.receiptNumber} is the payment for counter sale ${counterSale.invoiceNumber}. `
+          + 'Cancel the counter sale instead — that reverses the sale and its payment together. '
+          + 'Cancelling the payment on its own would leave the sale posted and showing as unpaid.'
+      );
+    }
 
     return sequelize.transaction(async (transaction) => {
       const entry = await JournalEntry.findOne({ where: { referenceType: 'Receipt', referenceId: receipt.id }, transaction });

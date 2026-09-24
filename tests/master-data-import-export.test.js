@@ -410,6 +410,27 @@ describe('Export', () => {
     const name = rows.find((row) => row[1] === 'FG-FORMULA')[2];
     expect(String(name).startsWith("'=")).toBe(true);
   });
+
+  it('gives back exactly what it wrote when that file is imported again', async () => {
+    // The escape above prefixes the name with an apostrophe. Read back
+    // literally that apostrophe became part of the name, so re-importing an
+    // untouched export renamed the product to '=HYPERLINK(...). An escape the
+    // reader does not undo is data corruption on a round trip.
+    const exported = await download(admin, '/api/v1/master-data/products/export', { search: 'FG-FORMULA' });
+    const checked = await admin.upload('/api/v1/master-data/products/import/validate', exported.body, 'round.xlsx');
+
+    expect(checked.body.data.errorRows).toBe(0);
+    expect(checked.body.data.newRows + checked.body.data.updateRows).toBe(0);
+    expect((await Product.findOne({ where: { code: 'FG-FORMULA' } })).name).toBe('=HYPERLINK("http://evil","click")');
+  });
+
+  it('leaves an apostrophe that belongs to the name alone', async () => {
+    await Product.create({ tenantId, uomId: uom.id, name: "O'Brien Cement", code: 'FG-OBRIEN', productType: 'FINISHED_GOOD' });
+    const exported = await download(admin, '/api/v1/master-data/products/export', { search: 'FG-OBRIEN' });
+    const checked = await admin.upload('/api/v1/master-data/products/import/validate', exported.body, 'obrien.xlsx');
+    expect(checked.body.data.updateRows).toBe(0);
+    expect((await Product.findOne({ where: { code: 'FG-OBRIEN' } })).name).toBe("O'Brien Cement");
+  });
 });
 
 describe('Who may do what', () => {

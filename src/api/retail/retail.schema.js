@@ -130,4 +130,12 @@ const listQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
 });
 
-module.exports = { createCounterSaleSchema, quoteCounterSaleSchema, listQuerySchema };
+/** Cancelling reverses money and stock, so it says why, like every other cancellation. */
+const cancelCounterSaleSchema = z.object({
+  body: z.object({
+    reason: z.string().trim().min(3, 'Give a reason of at least 3 characters'),
+  }),
+});
+
+module.exports = {
+  cancelCounterSaleSchema, createCounterSaleSchema, quoteCounterSaleSchema, listQuerySchema };

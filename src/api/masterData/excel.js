@@ -34,6 +34,28 @@ const safeText = (value) => {
   return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 };
 
+/**
+ * The characters a spreadsheet reads as the start of a formula, plus the two
+ * whitespace ones that can smuggle them in. Written as a set rather than a
+ * regular expression so the escaping is not something anyone has to squint at.
+ */
+const FORMULA_STARTERS = new Set(['=', '+', '-', '@', '\t', '\r']);
+
+/**
+ * Undoes `safeText`, so a round trip returns what it started with.
+ *
+ * The export prefixes a value beginning with one of those characters with an
+ * apostrophe, so the reader's spreadsheet treats it as text rather than running
+ * it. Read back literally, that apostrophe became part of the value: exporting
+ * a product named `=HYPERLINK(...)` and re-importing the untouched file renamed
+ * it to `'=HYPERLINK(...)`. An escape the reader does not undo is not an
+ * escape — it is data corruption on a round trip.
+ */
+const unescapeFormulaGuard = (text) =>
+  (typeof text === 'string' && text.startsWith("'") && FORMULA_STARTERS.has(text[1])
+    ? text.slice(1)
+    : text);
+
 /** Header text as it is matched: case and spacing are forgiven, nothing else. */
 const normalizeHeader = (text) => String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -283,7 +305,7 @@ const readWorkbook = async (buffer, columns, { optionalHeaders = [], ignoreHeade
       const index = seen.get(normalizeHeader(column.header));
       if (index === undefined) continue;
       const value = excelRow.getCell(index + 1).value;
-      raw[column.header] = value instanceof Date ? value : cellText(value).trim() || null;
+      raw[column.header] = value instanceof Date ? value : unescapeFormulaGuard(cellText(value).trim()) || null;
       if (!isBlank(raw[column.header])) hasValue = true;
     }
     // A sheet that had rows deleted keeps their empty shells. Skipping them is
@@ -299,4 +321,4 @@ const readWorkbook = async (buffer, columns, { optionalHeaders = [], ignoreHeade
   return { sheetName: sheet.name, rows };
 };
 
-module.exports = { buildTemplate, buildExport, buildErrorWorkbook, readWorkbook, safeText, MAX_ROWS, DATA_SHEET };
+module.exports = { buildTemplate, buildExport, buildErrorWorkbook, readWorkbook, safeText, unescapeFormulaGuard, MAX_ROWS, DATA_SHEET };

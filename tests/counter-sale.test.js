@@ -372,25 +372,31 @@ describe('Cancellation', () => {
     expect(sold.status).toBe(201);
     const afterSale = await onHand(finishedGood.id);
 
-    // Money was taken, so the receipt has to be reversed first — the same rule
-    // a B2B invoice follows, and the reason a credit note exists.
-    const blocked = await request(app)
+    // Neither half comes apart on its own. The invoice will not cancel while
+    // money is allocated to it — the same rule a B2B invoice follows — and the
+    // receipt will not cancel either, because doing so used to leave the sale
+    // posted and reading as unpaid, mendable only from the finance screens.
+    const blockedInvoice = await request(app)
       .put(`/api/v1/invoices/${sold.body.data.invoice.id}/cancel`)
       .set('Cookie', adminCookie)
       .send({ reason: 'Customer changed their mind' });
-    expect(blocked.status).toBe(400);
+    expect(blockedInvoice.status).toBe(400);
 
-    await request(app)
+    const blockedReceipt = await request(app)
       .put(`/api/v1/receipts/${sold.body.data.receipt.id}/cancel`)
       .set('Cookie', adminCookie)
       .send({ reason: 'Counter sale reversed' });
+    expect(blockedReceipt.status).toBe(400);
+    expect(blockedReceipt.body.message).toMatch(/Cancel the counter sale instead/);
 
+    // One act, the way the sale itself was one act.
     const cancelled = await request(app)
-      .put(`/api/v1/invoices/${sold.body.data.invoice.id}/cancel`)
+      .post(`/api/v1/retail/counter-sales/${sold.body.data.invoice.id}/cancel`)
       .set('Cookie', adminCookie)
       .send({ reason: 'Customer changed their mind' });
     expect(cancelled.status).toBe(200);
-    expect(cancelled.body.data.status).toBe('CANCELLED');
+    expect(cancelled.body.data.invoice.status).toBe('CANCELLED');
+    expect(cancelled.body.data.cancelledReceipts).toContain(sold.body.data.receipt.receiptNumber);
 
     // The point of the whole exercise: the pallet is back on the shelf.
     expect(await onHand(finishedGood.id)).toBe(afterSale + 4);

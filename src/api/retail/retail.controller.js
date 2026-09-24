@@ -63,4 +63,9 @@ const createCounterSale = asyncHandler(async (req, res) => {
   sendSuccess(res, maskRateFields(data, req), 'Counter sale completed successfully', 201);
 });
 
-module.exports = { listCounterSales, getCounterSale, createCounterSale, quoteCounterSale };
+const cancelCounterSale = asyncHandler(async (req, res) => {
+  const data = await CounterSaleService.cancelCounterSale(req.params.id, req.body.reason);
+  sendSuccess(res, data, `Counter sale cancelled — ${data.cancelledReceipts.length ? `payment ${data.cancelledReceipts.join(', ')} reversed with it` : 'no payment had been taken'}`);
+});
+
+module.exports = { listCounterSales, getCounterSale, createCounterSale, quoteCounterSale, cancelCounterSale };

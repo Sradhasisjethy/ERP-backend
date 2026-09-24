@@ -5,8 +5,8 @@ const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
 
 const listParties = asyncHandler(async (req, res) => {
-  const { page, limit, search, status, partyType, sortBy, sortDir } = req.query;
-  const data = await PartiesService.listParties(Number(page), Number(limit), { search, status, partyType, sortBy, sortDir });
+  const { page, limit, search, status, partyType, partyTypes, sortBy, sortDir } = req.query;
+  const data = await PartiesService.listParties(Number(page), Number(limit), { search, status, partyType, partyTypes, sortBy, sortDir });
   sendList(res, req, maskRateFields(data, req), 'Parties retrieved successfully');
 });
 
