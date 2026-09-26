@@ -19,6 +19,8 @@ const { DocumentNumberingService } = require('../documentSeries/documentNumberin
 const { StockLedgerService } = require('../inventory/stockLedger.service');
 const { StockLot } = require('../inventory/stockLot.model');
 const { StockLedgerEntry } = require('../inventory/stockLedgerEntry.model');
+const { Organization } = require('../organization/organization.model');
+const { Uom } = require('../products/uom.model');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../../core/AppError');
 const { ACTIVE_ORDER_STATUSES } = require('../sales/sales.service');
 const { getUserId } = require('../../core/tenantContext');
@@ -78,7 +80,18 @@ class ProductionService {
 
   static async getPlan(id, transaction) {
     const plan = await ProductionPlan.findByPk(id, {
-      include: [{ model: ProductionPlanLine, as: 'lines', include: [{ model: Product, as: 'product' }] }],
+      include: [
+        {
+          model: ProductionPlanLine,
+          as: 'lines',
+          include: [{ model: Product, as: 'product', include: [{ model: Uom, as: 'uom' }] }],
+        },
+        {
+          model: Factory,
+          as: 'factory',
+          include: [{ model: Organization, as: 'organization' }],
+        },
+      ],
       transaction,
     });
     if (!plan) throw new NotFoundError('Production plan not found');
