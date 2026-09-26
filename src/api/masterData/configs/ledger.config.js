@@ -86,8 +86,8 @@ const accounts = {
     }
     return null;
   },
-  create: (values) => AccountsService.create(values),
-  update: (record, values) => AccountsService.update(record.id, values),
+  create: (values, context, options) => AccountsService.create(values, options),
+  update: (record, values, context, options) => AccountsService.update(record.id, values, options),
 };
 
 module.exports = { accounts };

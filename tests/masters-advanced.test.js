@@ -6,7 +6,7 @@ const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const {
-  Tenant, User, Organization, Factory, FinancialYear, Uom, Product, ProductCategory, HsnCode, Party,
+  Tenant, User, Organization, Factory, FinancialYear, Uom, Product, Party,
 } = require('../src/models/index');
 const { UomService } = require('../src/api/products/uom.service');
 const { BomService } = require('../src/api/products/bom.service');
@@ -15,7 +15,6 @@ const { determineTax, stateCodeFor } = require('../src/api/invoicing/taxDetermin
 const PASSWORD = 'password123';
 let adminCookie;
 let tenantId;
-let factory;
 let bagUom;
 let kgUom;
 let tonneUom;
@@ -46,7 +45,7 @@ beforeAll(async () => {
   await User.create({ tenantId, email: 'admin@adv-test.co', passwordHash, firstName: 'Admin', lastName: 'User', role: 'PLATFORM_ADMIN' }, { validate: false });
 
   await FinancialYear.create({ tenantId, code: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
-  factory = await Factory.create({ tenantId, organizationId: org.id, name: 'Adv Factory', code: 'ADV-FAC', state: 'Odisha' });
+  await Factory.create({ tenantId, organizationId: org.id, name: 'Adv Factory', code: 'ADV-FAC', state: 'Odisha' });
 
   bagUom = await Uom.create({ tenantId, name: 'Bag', code: 'BAG' });
   kgUom = await Uom.create({ tenantId, name: 'Kilogram', code: 'KG' });

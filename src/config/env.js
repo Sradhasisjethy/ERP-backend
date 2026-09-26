@@ -121,7 +121,11 @@ const envSchema = z
     // this deployment, so exports run inline; above this many rows the request is
     // refused with an actionable message rather than blocking a worker for
     // minutes. See api/reports/lib/runner.js.
-    REPORT_EXPORT_MAX_ROWS: z.coerce.number().int().min(100).max(500000).default(50000),
+    // Exports build the workbook inside the request, on the one Node thread.
+    // Measured: 50,000 rows blocks the event loop for 25 s and allocates 1 GB;
+    // 10,000 rows is 5 s and 235 MB. Until exports run in a worker, the cap is
+    // what protects every other user from one large download.
+    REPORT_EXPORT_MAX_ROWS: z.coerce.number().int().min(100).max(500000).default(10000),
   })
   .superRefine((value, ctx) => {
     const reject = (path, message) =>

@@ -18,7 +18,6 @@ const {
   PriceList, PriceListItem, SalesOrderLine,
 } = require('../src/models/index');
 const { BundleRule } = require('../src/api/bundles/bundleRule.model');
-const { BundleComponent } = require('../src/api/bundles/bundleComponent.model');
 const { OverrideReasonCode } = require('../src/api/bundles/overrideReasonCode.model');
 const { BundleDocumentService } = require('../src/api/bundles/bundleDocument.service');
 const { runInTenantContext } = require('./helpers/tenant');

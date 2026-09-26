@@ -37,6 +37,45 @@ const sequelize = new Sequelize({
    */
   timezone: env.APP_TIMEZONE,
   logging: env.NODE_ENV === 'development' ? console.log : false,
+
+  /**
+   * Left unset, Sequelize allows five connections per process. That is five
+   * database operations in flight, full stop: a sixth request waits on
+   * `acquire` and fails after a minute. Every write here holds a connection
+   * for its whole transaction (28–71 round trips for a sales document), so
+   * five concurrent writers was the entire capacity of the application.
+   *
+   * Twenty-five is sized for one process against a Postgres with
+   * max_connections = 100: two processes and the migrations still fit. Raise
+   * max_connections, or put PgBouncer in front, before running more instances.
+   * The scalability audit (docs/scalability-audit.md, §5) has the arithmetic.
+   */
+  pool: {
+    max: 25,
+    min: 2,
+    // Fail fast rather than queue for a minute: a request that cannot get a
+    // connection in fifteen seconds is better told so than left hanging.
+    acquire: 15000,
+    idle: 10000,
+  },
+
+  /**
+   * Two server-side timeouts the database itself does not set (both were 0).
+   *
+   * `statement_timeout` stops one runaway query from holding a connection
+   * indefinitely. `idle_in_transaction_session_timeout` reclaims a connection
+   * whose transaction was opened and then abandoned — which is exactly what a
+   * process blocked by an in-request export produces. Both are per session,
+   * carried on this connection, so they travel with the application rather
+   * than depending on how the server is configured.
+   *
+   * Thirty seconds is generous for any single statement here; the longest
+   * legitimate ones are the report exports at their 10,000-row cap.
+   */
+  dialectOptions: {
+    statement_timeout: 30000,
+    idle_in_transaction_session_timeout: 60000,
+  },
 });
 
 module.exports = { sequelize };

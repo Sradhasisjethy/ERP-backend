@@ -7,8 +7,7 @@ const { ProductCategory } = require('../../products/productCategory.model');
 const { hasViewRates } = require('../../../utils/fieldMasking');
 const { executeReport } = require('../lib/runner');
 const { resolveFormatSettings, formatDate, formatValue, humanise } = require('./format');
-const { buildXlsx } = require('./xlsx');
-const { buildPdf } = require('./pdf');
+const { renderInWorker } = require('./workers');
 
 /**
  * Export orchestration.
@@ -92,11 +91,44 @@ const resolveUserName = async (req) => {
 };
 
 /** Organisation identity for the header — the legal entity, then the tenant. */
-const resolveOrganizationName = async (req) => {
-  if (req.user?.organizationId) {
-    const organization = await Organization.findByPk(req.user.organizationId, { attributes: ['id', 'name'] }).catch(() => null);
+/**
+ * Whose business this report is about.
+ *
+ * It used to be whatever organisation the signed-in user happened to be
+ * attached to. That put "Acme Global" — an organisation deactivated long ago —
+ * at the top of a sales report in which every invoice belonged to Infideep
+ * Precast, because one login still pointed at the old shell. A report is a
+ * business document; naming the wrong company on it is not a cosmetic problem.
+ *
+ * So it is answered from the data first and the login last:
+ *
+ *   1. the organisation that owns the plant the report is filtered to
+ *   2. the one organisation that owns every plant the tenant has, if there is
+ *      only one — which is the ordinary case
+ *   3. the user's own organisation, but only while it is still active
+ *   4. the tenant
+ */
+const resolveOrganizationName = async (req, params = {}) => {
+  if (params.factoryId) {
+    const factory = await Factory.findByPk(params.factoryId, {
+      attributes: ['id', 'organizationId'],
+      include: [{ model: Organization, as: 'organization', attributes: ['id', 'name'] }],
+    }).catch(() => null);
+    if (factory?.organization?.name) return factory.organization.name;
+  }
+
+  const factories = await Factory.findAll({ attributes: ['organizationId'] }).catch(() => []);
+  const owners = [...new Set(factories.map((factory) => factory.organizationId).filter(Boolean))];
+  if (owners.length === 1) {
+    const organization = await Organization.findByPk(owners[0], { attributes: ['id', 'name'] }).catch(() => null);
     if (organization?.name) return organization.name;
   }
+
+  if (req.user?.organizationId) {
+    const organization = await Organization.findByPk(req.user.organizationId, { attributes: ['id', 'name', 'status'] }).catch(() => null);
+    if (organization?.name && organization.status === 'active') return organization.name;
+  }
+
   // Tenant is not a BaseScopedModel, so it is fetched by id directly.
   const tenant = await Tenant.findByPk(req.user.tenantId, { attributes: ['id', 'name'] }).catch(() => null);
   return tenant?.name || 'Organization';
@@ -148,7 +180,7 @@ const buildCsv = ({ definition, columns, rows, summary, metrics, meta, settings 
 
   // A UTF-8 BOM so Excel reads Indian names and symbols correctly rather than
   // as mojibake.
-  return `﻿${lines.join('\r\n')}`;
+  return `\uFEFF${lines.join('\r\n')}`;
 };
 
 const slugify = (value) =>
@@ -164,14 +196,16 @@ const exportReport = async (definition, req, params, format, res) => {
   const settings = await resolveFormatSettings();
 
   const [organizationName, filterLabel, userName] = await Promise.all([
-    resolveOrganizationName(req),
+    resolveOrganizationName(req, params),
     describeFilters(definition, params),
     resolveUserName(req),
   ]);
   const locationLabel = await resolveLocationLabel(params, 'All permitted locations');
 
+  // Plain data only: this crosses into a worker thread by structured clone
+  // (see workers.js), so the definition is reduced to what the file prints.
   const payload = {
-    definition,
+    definition: { name: definition.name, description: definition.description || '' },
     columns: result.columns,
     rows: result.rows,
     summary: result.summary,
@@ -198,8 +232,9 @@ const exportReport = async (definition, req, params, format, res) => {
   res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
 
   if (format === 'csv') return res.send(buildCsv(payload));
-  if (format === 'xlsx') return res.send(Buffer.from(await buildXlsx(payload)));
-  return buildPdf(payload, res);
+  // XLSX and PDF are built on a worker thread and streamed back chunk by
+  // chunk, so a large file slows its requester rather than every other user.
+  return renderInWorker(format, payload, res);
 };
 
-module.exports = { exportReport, FORMATS, describeFilters, periodLabel };
+module.exports = { exportReport, FORMATS, describeFilters, periodLabel, resolveOrganizationName };

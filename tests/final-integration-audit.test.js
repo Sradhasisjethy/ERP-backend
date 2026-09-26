@@ -4,9 +4,9 @@ const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const {
-  Tenant, User, Organization, Factory, FinancialYear, Uom, HsnCode, Product, Party,
+  Tenant, User, Organization, Factory, FinancialYear,
   AdGroup, AdGroupMember, UserFactory, StockLot, StockLedgerEntry, StockReservation,
-  JournalEntry, JournalLine, Account, PurchaseInvoice, SalesInvoice, SalesOrderLine,
+  JournalEntry, JournalLine, PurchaseInvoice, SalesInvoice, SalesOrderLine,
   Notification, AuditLog, PaymentAllocation,
 } = require('../src/models/index');
 const { StockLedgerService } = require('../src/api/inventory/stockLedger.service');
@@ -52,12 +52,6 @@ const ledgerQty = async (factoryId, productId) => {
 const lotQty = async (factoryId, productId) => {
   const lots = await StockLot.findAll({ where: { factoryId, productId } });
   return lots.reduce((s, l) => s + Number(l.qtyAvailable), 0);
-};
-const accountNet = async (code) => {
-  const account = await Account.findOne({ where: { code } });
-  if (!account) return 0;
-  const lines = await JournalLine.findAll({ where: { accountId: account.id } });
-  return lines.reduce((s, l) => s + Number(l.debitPaise) - Number(l.creditPaise), 0);
 };
 /** Signed party balance from the ledger: debit − credit. */
 const partyNet = async (partyId) => {

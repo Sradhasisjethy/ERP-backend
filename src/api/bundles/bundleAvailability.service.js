@@ -94,7 +94,7 @@ class BundleAvailabilityService {
 
     const bottleneck = capacities
       .filter((c) => c.capacity === availableBundles)
-      .sort((a, b) => (a.role === 'PARENT' ? 1 : -1))[0] || null;
+      .sort((a) => (a.role === 'PARENT' ? 1 : -1))[0] || null;
 
     return {
       parentProductId,

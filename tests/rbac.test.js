@@ -862,7 +862,7 @@ describe('self-approval', () => {
 
   /** BR-29 is enforced before the approval rule, so the actor needs the plant. */
   const atThisFactory = async (email, permissions) => {
-    const { user, cookie } = await createUserReturning(email, permissions);
+    const { user } = await createUserReturning(email, permissions);
     await UserFactory.create({ tenantId, userId: user.id, factoryId });
     return { user, cookie: await loginAs(email) };
   };

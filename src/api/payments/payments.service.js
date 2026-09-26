@@ -329,7 +329,7 @@ class PaymentsService {
    *   its payment together and so is the one caller allowed past the guard
    *   below.
    */
-  static async cancelReceipt(id, reason, { fromCounterSale = false } = {}) {
+  static async cancelReceipt(id, reason, { fromCounterSale = false, transaction = null } = {}) {
     const receipt = await this.getReceipt(id);
     if (receipt.status !== 'POSTED') throw new ValidationError(`Only a POSTED receipt can be cancelled (current status: ${receipt.status})`);
     if (!reason) throw new ValidationError('A cancellation reason is required');
@@ -343,12 +343,16 @@ class PaymentsService {
       );
     }
 
-    return sequelize.transaction(async (transaction) => {
-      const entry = await JournalEntry.findOne({ where: { referenceType: 'Receipt', referenceId: receipt.id }, transaction });
-      if (entry) await LedgerService.reverseJournal(entry.id, reason, transaction);
-      await receipt.update({ status: 'CANCELLED' }, { transaction });
+    // A nested sequelize.transaction() here does not become a savepoint — it
+    // takes a second connection from a pool of five and cannot see what the
+    // caller has written. Reuse the caller's transaction when there is one.
+    const run = async (t) => {
+      const entry = await JournalEntry.findOne({ where: { referenceType: 'Receipt', referenceId: receipt.id }, transaction: t });
+      if (entry) await LedgerService.reverseJournal(entry.id, reason, t);
+      await receipt.update({ status: 'CANCELLED' }, { transaction: t });
       return this.getReceipt(id);
-    });
+    };
+    return transaction ? run(transaction) : sequelize.transaction(run);
   }
 
   /**

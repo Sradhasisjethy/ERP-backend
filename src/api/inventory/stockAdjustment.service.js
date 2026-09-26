@@ -1,10 +1,8 @@
-const { Op } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { StockAdjustment } = require('./stockAdjustment.model');
 const { StockLot } = require('./stockLot.model');
 const { StockLedgerService } = require('./stockLedger.service');
 const { Product } = require('../products/product.model');
-const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { toOrder } = require('../../utils/pagination');

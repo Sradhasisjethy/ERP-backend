@@ -1,4 +1,3 @@
-const { Op } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { PurchaseIndent, PurchaseIndentLine } = require('./purchaseIndent.model');
 const { PurchaseOrder } = require('./purchaseOrder.model');

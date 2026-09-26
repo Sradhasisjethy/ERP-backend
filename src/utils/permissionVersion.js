@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { sessionStateCache } = require('../core/sessionStateCache');
 
 /**
  * Invalidates already-issued access tokens the moment a user's access changes.
@@ -27,6 +28,8 @@ const bumpUser = async (userId, transaction) => {
   if (!userId) return;
   const { User } = require('../api/users/user.model');
   await User.increment('permissionsVersion', { by: 1, where: { id: userId }, transaction });
+  // increment() runs no model hooks, so the cached answer is dropped here.
+  sessionStateCache.invalidate(userId, transaction);
 };
 
 /** Bumps several users at once. */
@@ -35,6 +38,7 @@ const bumpUsers = async (userIds, transaction) => {
   if (!ids.length) return;
   const { User } = require('../api/users/user.model');
   await User.increment('permissionsVersion', { by: 1, where: { id: { [Op.in]: ids } }, transaction });
+  sessionStateCache.invalidate(ids, transaction);
 };
 
 /**

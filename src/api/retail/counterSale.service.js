@@ -643,21 +643,29 @@ class CounterSaleService {
       throw new ValidationError(`Only a POSTED counter sale can be cancelled (current status: ${invoice.status})`);
     }
 
-    return sequelize.transaction(async () => {
+    return sequelize.transaction(async (transaction) => {
       // The money first: the invoice will not cancel while it is allocated.
       const allocations = await PaymentAllocation.findAll({
         where: { invoiceType: 'SALES', invoiceId: invoice.id },
+        transaction,
       });
       const receipts = allocations.length
-        ? await Receipt.findAll({ where: { id: { [Op.in]: allocations.map((a) => a.receiptId) }, status: 'POSTED' } })
+        ? await Receipt.findAll({
+          where: { id: { [Op.in]: allocations.map((a) => a.receiptId) }, status: 'POSTED' },
+          transaction,
+        })
         : [];
 
+      // Both halves on this one transaction: a nested sequelize.transaction()
+      // would take a second connection, and then a failure in the second half
+      // would leave the first committed — the exact half-state this exists to
+      // prevent.
       for (const receipt of receipts) {
-        await PaymentsService.cancelReceipt(receipt.id, reason, { fromCounterSale: true });
+        await PaymentsService.cancelReceipt(receipt.id, reason, { fromCounterSale: true, transaction });
       }
 
       // Then the sale, which reverses its journal and puts the stock back.
-      await InvoicingService.cancelInvoice(invoice.id, reason);
+      await InvoicingService.cancelInvoice(invoice.id, reason, { transaction });
 
       return {
         invoice: await InvoicingService.getInvoice(invoice.id),

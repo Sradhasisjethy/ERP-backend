@@ -13,7 +13,6 @@ let adminCookie;
 let restrictedCookie;
 let factory;
 let finishedGood;
-let customer;
 
 const extractCookie = (res, name) => {
   const cookies = res.headers['set-cookie'] || [];
@@ -69,7 +68,7 @@ beforeAll(async () => {
   await MixDesignLine.create({ tenantId, mixDesignId: mixDesign.id, rawMaterialProductId: rawMaterial.id, quantityPerUnit: 2, uomId: uom.id });
 
   const vendor = await Party.create({ tenantId, partyType: 'VENDOR', name: 'RPT Vendor' });
-  customer = await Party.create({ tenantId, partyType: 'CUSTOMER', name: 'RPT Customer', state: 'Odisha' });
+  await Party.create({ tenantId, partyType: 'CUSTOMER', name: 'RPT Customer', state: 'Odisha' });
 
   adminCookie = extractCookie(await request(app).post('/api/v1/auth/login').send({ email: 'admin@reports-test.co', password: PASSWORD }), 'accessToken');
   restrictedCookie = extractCookie(await request(app).post('/api/v1/auth/login').send({ email: 'clerk@reports-test.co', password: PASSWORD }), 'accessToken');

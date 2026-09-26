@@ -1,6 +1,6 @@
 const { asyncHandler } = require('../../core/asyncHandler');
 const { AuditLogService } = require('./auditLog.service');
-const { sendSuccess, sendList } = require('../../utils/response');
+const { sendList } = require('../../utils/response');
 
 const listAuditLogs = asyncHandler(async (req, res) => {
   const { page, limit, entityType, entityId, userId, search } = req.query;

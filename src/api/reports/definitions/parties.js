@@ -1,7 +1,7 @@
 const { defineReport } = require('../lib/registry');
 const { VOCABULARY } = require('../lib/filters');
 const { text, code, date, qty, money, int, status, metric } = require('../lib/columns');
-const { allocatedAmount, paymentStatusExpr, salesDueDate, daysOutstanding, ageingBucket } = require('../lib/fragments');
+const { allocatedAmount, salesDueDate, daysOutstanding, ageingBucket } = require('../lib/fragments');
 
 /**
  * Customer, vendor, contractor and labour reports.

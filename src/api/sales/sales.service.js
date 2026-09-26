@@ -1,4 +1,4 @@
-const { Op, fn, col } = require('sequelize');
+const { Op } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { SalesOrder } = require('./salesOrder.model');
 const { SalesOrderLine } = require('./salesOrderLine.model');

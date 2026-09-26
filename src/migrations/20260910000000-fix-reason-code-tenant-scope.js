@@ -21,7 +21,7 @@
 const FK = 'bundle_component_suppressions_reasonCode_fkey';
 
 module.exports = {
-  async up(queryInterface, Sequelize) {
+  async up(queryInterface, _Sequelize) {
     const { sequelize } = queryInterface;
 
     await sequelize.transaction(async (transaction) => {

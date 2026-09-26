@@ -84,8 +84,18 @@ describe('Sales Return (M22)', () => {
         lines: [{ productId: product.id, quantity: 5, ratePaise: 5000 }],
       });
 
+    // pg warns (and pg 9 will refuse) when two queries are issued on one
+    // connection at once; inside a transaction that means something was not
+    // awaited. The cancel must run its queries one after another.
+    const warnings = [];
+    const onWarning = (warning) => warnings.push(warning);
+    process.on('warning', onWarning);
     const cancelled = await request(app).put(`/api/v1/returns/sales-returns/${created.body.data.id}/cancel`).set('Cookie', adminCookie).send({ reason: 'Entered by mistake' });
+    await new Promise((resolve) => setImmediate(resolve));
+    process.off('warning', onWarning);
     expect(cancelled.status).toBe(200);
+    expect(warnings.map((w) => `${w.name}: ${w.message}
+${w.stack}`)).toEqual([]);
 
     const after = await request(app).get(`/api/v1/inventory/balance?factoryId=${factory.id}&productId=${product.id}`).set('Cookie', adminCookie);
     expect(after.body.data.balance).toBe(before.body.data.balance); // net zero after post + cancel

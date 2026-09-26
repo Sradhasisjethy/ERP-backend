@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { env } = require('../config/env');
 const { UnauthorizedError } = require('../core/AppError');
 const { EmployeeStatus } = require('../utils/constants');
+const { sessionStateCache } = require('../core/sessionStateCache');
 
 /**
  * Paths that only need a valid signature, because they exist to *fix* a stale
@@ -19,6 +20,13 @@ const authenticate = async (req, res, next) => {
   if (!token) {
     return next(new UnauthorizedError('Access token is missing'));
   }
+
+  // Several routers share the /api/v1 prefix and each runs this middleware, so
+  // one request used to pass through it once per router it walked past —
+  // measured at four identical user lookups, ~120 ms of every list request
+  // against the remote database. The same token on the same request has
+  // already been checked; checking it again cannot give a different answer.
+  if (req.user && req.authenticatedToken === token) return next();
 
   let decoded;
   try {
@@ -49,10 +57,17 @@ const authenticate = async (req, res, next) => {
     // database call is wrapped rather than left to surface as an unhandled
     // rejection and a hung request.
     try {
-      const { User } = require('../api/users/user.model');
-      const current = await User.unscoped().findByPk(decoded.userId, {
-        attributes: ['id', 'permissionsVersion', 'status'],
-      });
+      // Held for a few seconds and dropped the instant this process changes
+      // it — see core/sessionStateCache.js for why that is still immediate.
+      let current = sessionStateCache.get(decoded.userId);
+      if (!current) {
+        const { User } = require('../api/users/user.model');
+        const row = await User.unscoped().findByPk(decoded.userId, {
+          attributes: ['id', 'permissionsVersion', 'status'],
+        });
+        current = row ? { permissionsVersion: row.permissionsVersion, status: row.status } : null;
+        if (current) sessionStateCache.set(decoded.userId, current);
+      }
 
       if (!current) return next(new UnauthorizedError('Invalid or expired token'));
 
@@ -73,6 +88,9 @@ const authenticate = async (req, res, next) => {
   }
 
   req.user = decoded;
+  // Only a fully checked token is remembered — exempt paths skip the version
+  // check, so they must not let a later router skip it too.
+  if (!VERSION_EXEMPT.has(req.path)) req.authenticatedToken = token;
   next();
 };
 

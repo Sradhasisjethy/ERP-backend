@@ -6,7 +6,6 @@ const { Product } = require('../products/product.model');
 const { Party } = require('../parties/party.model');
 const { StockLot } = require('../inventory/stockLot.model');
 const { SalesOrder } = require('../sales/salesOrder.model');
-const { SalesOrderLine } = require('../sales/salesOrderLine.model');
 const { SalesInvoice } = require('../invoicing/salesInvoice.model');
 const { PurchaseInvoice } = require('../purchasing/purchaseInvoice.model');
 const { DeliveryChallan } = require('../dispatch/deliveryChallan.model');

@@ -175,7 +175,6 @@ describe('FR-M11-6 Three-way match', () => {
 });
 
 describe('FR-M18-7 Cheque lifecycle', () => {
-  let receiptId;
   let chequeId;
 
   it('creates a cheque record when a receipt is taken by cheque', async () => {
@@ -184,7 +183,6 @@ describe('FR-M18-7 Cheque lifecycle', () => {
       modes: [{ mode: 'CHEQUE', amountPaise: 250000, chequeNumber: '000123', bankName: 'SBI', chequeDate: '2026-08-12' }],
     });
     expect(receipt.status).toBe(201);
-    receiptId = receipt.body.data.id;
 
     const cheques = await request(app).get('/api/v1/cheques').set('Cookie', adminCookie);
     expect(cheques.status).toBe(200);

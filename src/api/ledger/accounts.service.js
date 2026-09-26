@@ -92,7 +92,13 @@ class AccountsService {
     }
   }
 
-  static async create(input) {
+  /**
+   * `transaction` — reuse the caller's, so a bulk import can create every
+   * account inside one transaction. A nested sequelize.transaction() here does
+   * not become a savepoint; it takes a second pool connection, and the rows it
+   * writes commit on their own whatever happens to the caller.
+   */
+  static async create(input, { transaction: outer = null } = {}) {
     const code = String(input.code || '').trim();
     const name = String(input.name || '').trim();
     if (!code) throw new ValidationError('An account code is required');
@@ -108,7 +114,7 @@ class AccountsService {
     this.validateGroupAndKind(accountGroup, subType);
     const type = ACCOUNT_GROUPS[accountGroup].type;
 
-    return sequelize.transaction(async (transaction) => {
+    const run = async (transaction) => {
       const existing = await Account.findOne({ where: { code }, transaction });
       if (existing) throw new ConflictError(`An account with code ${code} already exists`);
 
@@ -131,7 +137,8 @@ class AccountsService {
       }
 
       return accountView(await this.get(account.id, transaction));
-    });
+    };
+    return outer ? run(outer) : sequelize.transaction(run);
   }
 
   /**
@@ -173,8 +180,8 @@ class AccountsService {
    * type of an account that already has postings would move history from one
    * side of the balance sheet to the other, so it is refused.
    */
-  static async update(id, input) {
-    return sequelize.transaction(async (transaction) => {
+  static async update(id, input, { transaction: outer = null } = {}) {
+    const run = async (transaction) => {
       const account = await this.get(id, transaction);
       const system = isSystemAccount(account);
       const changes = {};
@@ -243,7 +250,8 @@ class AccountsService {
 
       if (Object.keys(changes).length) await account.update(changes, { transaction });
       return accountView(await this.get(id, transaction));
-    });
+    };
+    return outer ? run(outer) : sequelize.transaction(run);
   }
 
   static async hasPostings(accountId, transaction) {

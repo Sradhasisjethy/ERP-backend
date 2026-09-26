@@ -23,7 +23,7 @@ const {
   PriceList,
   PriceListItem,
 } = require('../models/index');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const cls = require('cls-hooked');
 const { EmployeeStatus, EmployeeType, SystemRoles } = require('../utils/constants');
 const { NAMESPACE_NAME } = require('../core/tenantContext');
@@ -221,7 +221,6 @@ const seedDatabase = async () => {
     console.log(`Created HSN Code: ${hsnCode.code}`);
 
     const nosUom = uoms.find((u) => u.code === 'NOS');
-    const kgUom = uoms.find((u) => u.code === 'KG');
     const bagUom = uoms.find((u) => u.code === 'BAG');
     const cumUom = uoms.find((u) => u.code === 'CUM');
 
@@ -288,7 +287,7 @@ const seedDatabase = async () => {
     console.log(`Stocked raw materials at ${factories[0].name}`);
 
     // k. Party masters (Customer/Vendor/Contractor/Labour/Sales Reference)
-    const [customer, vendor, contractor, labour] = await Promise.all([
+    const [, , , labour] = await Promise.all([
       Party.create({ tenantId, partyType: 'CUSTOMER', name: 'Kalinga Builders Pvt Ltd', gstin: '21AAAAA0000A1Z5', city: 'Bhubaneswar', state: 'Odisha', creditLimitPaise: 50000000 }),
       Party.create({ tenantId, partyType: 'VENDOR', name: 'Odisha Cement Suppliers', gstin: '21BBBBB0000B1Z5', city: 'Cuttack', state: 'Odisha' }),
       Party.create({ tenantId, partyType: 'CONTRACTOR', name: 'Rabi Casting Contractor', phone: '9800000001' }),

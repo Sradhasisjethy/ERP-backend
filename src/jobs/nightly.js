@@ -14,6 +14,9 @@ const { StockLedgerService } = require('../api/inventory/stockLedger.service');
 const { LedgerService } = require('../api/ledger/ledger.service');
 const { NotificationsService } = require('../api/notifications/notifications.service');
 const { getInvoiceAllocatedAmount } = require('../api/payments/payments.service');
+const { RefreshToken } = require('../api/auth/refreshToken.model');
+const { IdempotencyKey } = require('../api/idempotency/idempotencyKey.model');
+const { sequelize } = require('../config/database');
 const { logger } = require('../utils/logger');
 
 /**
@@ -290,7 +293,59 @@ const JOBS = [
  * logged and does not abort the rest — a broken ageing calculation must not
  * stop curing promotion, which affects what can be dispatched tomorrow.
  */
-const runNightly = async ({ tenantId } = {}) => {
+/**
+ * One runner at a time, across every instance.
+ *
+ * The scheduler lives inside each API process and remembers "already ran
+ * today" in a module variable, so two instances behind a load balancer would
+ * each run the nightly batch — promoting lots twice, raising every alert
+ * twice. A Postgres advisory lock is the cheapest fence there is: no table,
+ * no Redis, and it releases itself if the holder dies.
+ *
+ * Session-level rather than transaction-level on purpose: the run takes a
+ * while, and holding a transaction open across it would trip
+ * idle_in_transaction_session_timeout and pin a pool slot. So it borrows one
+ * raw connection, locks on that, and gives it back at the end.
+ */
+const NIGHTLY_LOCK_KEY = 20260925;
+
+const withNightlyLock = async (fn) => {
+  const connection = await sequelize.connectionManager.getConnection({ type: 'write' });
+  try {
+    const { rows } = await connection.query('SELECT pg_try_advisory_lock($1) AS held', [NIGHTLY_LOCK_KEY]);
+    if (!rows[0].held) {
+      logger.info({ message: 'Nightly jobs skipped — another instance holds the lock' });
+      return { skipped: 'another instance is running the nightly jobs' };
+    }
+    try {
+      return await fn();
+    } finally {
+      await connection.query('SELECT pg_advisory_unlock($1)', [NIGHTLY_LOCK_KEY]).catch(() => {});
+    }
+  } finally {
+    sequelize.connectionManager.releaseConnection(connection);
+  }
+};
+
+/**
+ * Rows that only ever accumulate: a refresh token per login, an idempotency
+ * key per retried request. Neither had a pruning path, so both tables grew
+ * for ever. Expired tokens are useless by definition; an idempotency key
+ * exists to catch a retry seconds later, not a day later.
+ */
+const pruneExpiredRows = async () => {
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const [tokens, keys] = await Promise.all([
+    RefreshToken.destroy({ where: { expiresAt: { [Op.lt]: now } } }),
+    IdempotencyKey.destroy({ where: { createdAt: { [Op.lt]: dayAgo } } }),
+  ]);
+  return { expiredRefreshTokens: tokens, staleIdempotencyKeys: keys };
+};
+
+const runNightly = ({ tenantId } = {}) => withNightlyLock(() => runNightlyUnlocked({ tenantId }));
+
+const runNightlyUnlocked = async ({ tenantId } = {}) => {
   const tenants = tenantId
     ? [{ id: tenantId }]
     : await Tenant.findAll({ where: { status: 'active' }, attributes: ['id'] });
@@ -318,10 +373,22 @@ const runNightly = async ({ tenantId } = {}) => {
     }
   }
 
+  // Cross-tenant housekeeping, once per run rather than once per tenant. The
+  // models are unscoped here (no CLS tenant), which is what a prune wants.
+  try {
+    report.housekeeping = await pruneExpiredRows();
+  } catch (error) {
+    logger.error({ message: 'Nightly housekeeping failed', error: error.message });
+    report.housekeeping = { error: error.message };
+  }
+
   return report;
 };
 
 module.exports = {
+  pruneExpiredRows,
+  withNightlyLock,
+  NIGHTLY_LOCK_KEY,
   runNightly,
   promoteCuredLots,
   classifyAgeing,

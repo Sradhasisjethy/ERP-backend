@@ -54,7 +54,7 @@ const toCsv = ({ title, filters, columns, rows, canViewRates }) => {
     lines.push(cols.map((c) => csvEscape(formatCell(row[c.key], c))).join(','));
   }
 
-  return `﻿${lines.join('\n')}`;
+  return `\uFEFF${lines.join('\n')}`;
 };
 
 /** Streams a landscape A4 PDF of the same column set. */

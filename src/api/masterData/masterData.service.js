@@ -172,7 +172,6 @@ class MasterDataService {
 
     const started = Date.now();
     for (let probe = 0; probe < 3; probe += 1) {
-      // eslint-disable-next-line no-await-in-loop -- measuring latency, so they must be sequential
       await sequelize.query('SELECT 1', { logging: false });
     }
     const roundTripMs = (Date.now() - started) / 3;
@@ -516,7 +515,7 @@ class MasterDataService {
     let updated = 0;
 
     try {
-      await sequelize.transaction(async () => {
+      await sequelize.transaction(async (transaction) => {
         if (config.commitAll) {
           const result = await config.commitAll({ rows, context });
           created = result.created;
@@ -529,7 +528,10 @@ class MasterDataService {
         // trips to two — on a remote database, the difference between two
         // minutes and forty seconds for a thousand rows. The unique indexes and
         // foreign keys still run, so nothing rests on this being right.
-        const options = { preVerified: true };
+        // `transaction` is offered to every service; the ones whose writes
+        // open their own (accounts) reuse it, so the whole file still lands
+        // together or not at all. The rest join it through CLS anyway.
+        const options = { preVerified: true, transaction };
 
         for (const row of rows) {
           if (row.status === 'NEW') {

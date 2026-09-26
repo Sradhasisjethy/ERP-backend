@@ -8,8 +8,6 @@ const { ProductionEntry } = require('./productionEntry.model');
 const { MaterialConsumption } = require('./materialConsumption.model');
 const { WastageRecord } = require('./wastageRecord.model');
 const { Product } = require('../products/product.model');
-const { MixDesign } = require('../products/mixDesign.model');
-const { MixDesignLine } = require('../products/mixDesignLine.model');
 const { BomService } = require('../products/bom.service');
 const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
@@ -230,7 +228,7 @@ class ProductionService {
         referenceType: 'ProductionEntry', referenceId: entryId, transaction,
       });
 
-      const entry = await ProductionEntry.create(
+      await ProductionEntry.create(
         {
           id: entryId,
           factoryId,

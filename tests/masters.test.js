@@ -5,7 +5,7 @@ const { PricingService } = require('../src/api/pricing/pricing.service');
 const { runInTenantContext: withTenant } = require('./helpers/tenant');
 const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
-const { Tenant, User, Organization, AdGroup, AdGroupMember, AuditLog } = require('../src/models/index');
+const { Tenant, User, Organization, AdGroup, AdGroupMember, AuditLog, FinancialYear, JournalEntry } = require('../src/models/index');
 const { WebPermissions } = require('../src/utils/constants');
 
 const PASSWORD = 'password123';
@@ -108,6 +108,28 @@ describe('Factory & Financial Year (M01, BR-29)', () => {
     const current = await request(app).get('/api/v1/financial-years/current').set('Cookie', adminCookie);
     expect(current.status).toBe(200);
     expect(current.body.data.isCurrent).toBe(true);
+  });
+
+  /**
+   * A closed year is locked because its audited books must not change. A year
+   * closed with nothing in it has no books, and without this rule a duplicate
+   * code closed by mistake could never be removed.
+   */
+  it('lets a closed financial year go only when it never held anything', async () => {
+    const empty = await FinancialYear.create({ tenantId, code: '2031-32', startDate: '2031-04-01', endDate: '2032-03-31', status: 'CLOSED' });
+    const removed = await request(app).delete(`/api/v1/financial-years/${empty.id}`).set('Cookie', adminCookie);
+    expect(removed.status).toBe(200);
+    expect(await FinancialYear.findByPk(empty.id)).toBeNull();
+
+    const used = await FinancialYear.create({ tenantId, code: '2032-33', startDate: '2032-04-01', endDate: '2033-03-31', status: 'CLOSED' });
+    await JournalEntry.create({
+      tenantId, factoryId, entryDate: '2032-06-15', referenceType: 'Manual', referenceId: used.id, narration: 'Booked in the year',
+      totalDebitPaise: 0, totalCreditPaise: 0,
+    });
+    const refused = await request(app).delete(`/api/v1/financial-years/${used.id}`).set('Cookie', adminCookie);
+    expect(refused.status).toBe(400);
+    expect(refused.body.message).toMatch(/holds 1 journal entries/);
+    expect(await FinancialYear.findByPk(used.id)).not.toBeNull();
   });
 
   it('assigns a user to a factory and rejects a duplicate assignment', async () => {

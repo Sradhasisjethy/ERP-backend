@@ -8,7 +8,6 @@ const { Tenant, Organization, AdGroup, AdGroupMember, User } = require('../src/m
 const PASSWORD = 'password123';
 
 let regularUser;
-let noRoleUser;
 
 const extractCookie = (res, name) => {
   const cookies = res.headers['set-cookie'] || [];
@@ -46,7 +45,7 @@ beforeAll(async () => {
     { validate: false }
   );
 
-  noRoleUser = await User.create(
+  await User.create(
     {
       tenantId: tenant.id,
       organizationId: org.id,

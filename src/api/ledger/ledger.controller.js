@@ -93,7 +93,6 @@ const getPartyLedger = asyncHandler(async (req, res) => {
   // field is masked explicitly here rather than forcing the helper to guess.
   // The running balance and the opening/closing figures are money too — they
   // were the fields most easily left behind when this was one line.
-  const MONEY_ROW_FIELDS = ['debitPaise', 'creditPaise', 'runningBalancePaise'];
   const visible = hasViewRates(req);
 
   sendList(

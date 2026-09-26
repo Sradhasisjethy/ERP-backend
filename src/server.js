@@ -5,6 +5,7 @@ const { env } = require('./config/env');
 const { sequelize } = require('./config/database');
 const { logger } = require('./utils/logger');
 const { startScheduler, stopScheduler } = require('./jobs/scheduler');
+const { shutdownExportWorkers } = require('./api/reports/export/workers');
 
 let httpServer;
 
@@ -84,6 +85,9 @@ const shutdown = (signal) => {
   stopScheduler();
   httpServer.close(async () => {
     try {
+      // Export threads first: an idle one is unref'd and would not hold the
+      // process, but a busy one would keep building a file for a closed socket.
+      await shutdownExportWorkers();
       await sequelize.close();
       logger.info('HTTP server and database connection closed.');
       process.exit(0);

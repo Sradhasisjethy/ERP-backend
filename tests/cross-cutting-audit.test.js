@@ -179,7 +179,7 @@ describe('2. RBAC', () => {
   });
 
   it('a role change takes effect on the next login', async () => {
-    const u = await X.mkUser('promoted@cross.test', ['SALES_READ'], X.plantA.id);
+    await X.mkUser('promoted@cross.test', ['SALES_READ'], X.plantA.id);
     const before = await loginAs('promoted@cross.test');
     expect((await as(before).get('/api/v1/products')).status).toBe(403);
 

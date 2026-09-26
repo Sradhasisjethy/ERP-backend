@@ -1,9 +1,9 @@
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { User, Department, Office, Organization, AdGroupMember, AdGroup, Tenant } = require('../../models');
 const { getTenantId } = require('../../core/tenantContext');
-const { NotFoundError, ForbiddenError } = require('../../core/AppError');
+const { NotFoundError } = require('../../core/AppError');
 const emailService = require('../../services/email.service');
 const { RoleService } = require('../roles/role.service');
 const { permissionsForSystemRole } = require('../../utils/systemRolePermissions');

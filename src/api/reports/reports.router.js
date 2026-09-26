@@ -56,8 +56,8 @@ reportsRouter.get(
 );
 
 // --- Saved reports by id ---------------------------------------------------
-reportsRouter.get('/:id', authorize('REPORT_READ'), controller.get);
-reportsRouter.delete('/:id', authorize('REPORT_DELETE'), controller.remove);
+reportsRouter.get('/:id', authorize('REPORT_READ'), validate(schema.idParamsSchema, 'params'), controller.get);
+reportsRouter.delete('/:id', authorize('REPORT_DELETE'), validate(schema.idParamsSchema, 'params'), controller.remove);
 reportsRouter.post('/:id/run', authorize('REPORT_READ'), validate(schema.runSavedReportSchema), controller.runSaved);
 
 module.exports = { reportsRouter };

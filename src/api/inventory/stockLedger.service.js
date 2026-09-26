@@ -1,6 +1,5 @@
 const { Op, literal } = require('sequelize');
 const { searchWhere } = require('../../utils/pagination');
-const { sequelize } = require('../../config/database');
 const { StockLot } = require('./stockLot.model');
 const { StockLedgerEntry } = require('./stockLedgerEntry.model');
 const { Product } = require('../products/product.model');

@@ -1,6 +1,6 @@
 const { defineReport } = require('../lib/registry');
 const { VOCABULARY } = require('../lib/filters');
-const { text, code, date, qty, money, int, percent, status, metric } = require('../lib/columns');
+const { text, code, date, qty, money, percent, status, metric } = require('../lib/columns');
 const { lotValue } = require('../lib/fragments');
 
 /**

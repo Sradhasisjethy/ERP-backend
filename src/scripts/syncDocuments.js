@@ -1,4 +1,3 @@
-const { sequelize } = require('../config/database');
 require('../models/index');
 
 async function run() {

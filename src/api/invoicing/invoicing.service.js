@@ -269,7 +269,7 @@ class InvoicingService {
     });
   }
 
-  static async cancelInvoice(id, reason) {
+  static async cancelInvoice(id, reason, { transaction = null } = {}) {
     const invoice = await this.getInvoice(id);
     if (invoice.status !== 'POSTED') throw new ValidationError(`Only a POSTED invoice can be cancelled (current status: ${invoice.status})`);
     if (!reason) throw new ValidationError('A cancellation reason is required');
@@ -289,7 +289,11 @@ class InvoicingService {
       );
     }
 
-    return sequelize.transaction(async (transaction) => {
+    // Reuses the caller's transaction when given one, so a counter sale can be
+    // cancelled together with its receipt on one connection. A nested
+    // sequelize.transaction() would open a second connection instead of a
+    // savepoint and could not see the receipt the caller just reversed.
+    const run = async (transaction) => {
       const originalEntry = await JournalEntry.findOne({
         where: { referenceType: 'SalesInvoice', referenceId: invoice.id },
         transaction,
@@ -321,7 +325,8 @@ class InvoicingService {
 
       await invoice.update({ status: 'CANCELLED', cancelReason: reason }, { transaction });
       return this.getInvoice(id);
-    });
+    };
+    return transaction ? run(transaction) : sequelize.transaction(run);
   }
 }
 

@@ -42,7 +42,6 @@ const listQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   sortBy: z.string().trim().min(1).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-  search: z.string().optional(),
   status: z.enum(['active', 'inactive']).optional(),
   priceType: z.enum(['RETAIL', 'WHOLESALE', 'PARTY_SPECIFIC', 'CONTRACTOR_RATE']).optional(),
   partyId: z.string().uuid().optional(),

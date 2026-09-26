@@ -5,7 +5,7 @@ const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const {
   Tenant, User, Organization, Factory, FinancialYear, Uom, Product, Party,
-  AdGroup, AdGroupMember, UserFactory, PurchaseOrderLine, GoodsReceipt,
+  AdGroup, AdGroupMember, UserFactory, PurchaseOrderLine,
   PurchaseInvoice, StockLedgerEntry, JournalEntry, JournalLine, Account, AuditLog,
 } = require('../src/models/index');
 

@@ -1,5 +1,6 @@
 const express = require('express');
 const helmet = require('helmet');
+const compression = require('compression');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
@@ -71,6 +72,10 @@ app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
 // Security Middlewares
 app.use(helmet());
+// A page of two hundred parties is ~150 KB of JSON; gzip makes it ~20 KB. This
+// is the cheapest bandwidth win there is, and it costs a few hundred
+// microseconds per response.
+app.use(compression());
 const allowedOrigins = env.CORS_ORIGIN
   ? env.CORS_ORIGIN.split(',').map((o) => o.trim())
   : ['http://localhost:3000'];

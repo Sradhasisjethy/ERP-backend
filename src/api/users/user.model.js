@@ -182,4 +182,16 @@ User.belongsTo(Department, { foreignKey: 'departmentId' });
 User.belongsTo(Office, { foreignKey: 'officeId' });
 User.belongsTo(Organization, { foreignKey: 'organizationId' });
 
+/**
+ * Any write to a user row may change what `authenticate` would answer for
+ * them — status above all — so the cached answer goes with it. The bulk forms
+ * do not say which rows they touched, so they drop every entry; they are rare
+ * and the cost is one lookup per active user. See core/sessionStateCache.js.
+ */
+const { sessionStateCache } = require('../../core/sessionStateCache');
+User.addHook('afterUpdate', (user, options) => sessionStateCache.invalidate(user.id, options?.transaction));
+User.addHook('afterDestroy', (user, options) => sessionStateCache.invalidate(user.id, options?.transaction));
+User.addHook('afterBulkUpdate', (options) => sessionStateCache.clear(options?.transaction));
+User.addHook('afterBulkDestroy', (options) => sessionStateCache.clear(options?.transaction));
+
 module.exports = { User };

@@ -32,7 +32,6 @@ let factoryB;
 let customer;
 let otherCustomer;
 let finishedGood;
-let category;
 
 const extractCookie = (res, name) => {
   const cookies = res.headers['set-cookie'] || [];
@@ -191,7 +190,6 @@ beforeAll(async () => {
   factoryA = main.factory;
   customer = main.buyer;
   finishedGood = main.product;
-  category = main.cat;
 
   factoryB = await Factory.create({ tenantId, organizationId: org.id, name: 'Second Works', code: 'RPTB', state: 'Odisha' });
   await configureNumbering({ tenantId, factoryId: factoryB.id, financialYearId: main.financialYear.id, suffix: '-RPTB' });

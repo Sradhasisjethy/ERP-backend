@@ -1,6 +1,6 @@
 const { asyncHandler } = require('../../core/asyncHandler');
 const { DocumentSeriesService } = require('./documentSeries.service');
-const { sendSuccess, sendList } = require('../../utils/response');
+const { sendList } = require('../../utils/response');
 
 const listDocumentSeries = asyncHandler(async (req, res) => {
   const { page, limit, documentType, factoryId, financialYearId, search } = req.query;

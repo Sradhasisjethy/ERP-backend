@@ -4,7 +4,7 @@ const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const {
-  Tenant, User, Organization, Factory, FinancialYear, Uom, Product, Party,
+  Tenant, User, Organization, Factory, FinancialYear, Uom, Party,
   StockLot, StockLedgerEntry, MixDesign, MixDesignLine,
 } = require('../src/models/index');
 const { StockLedgerService } = require('../src/api/inventory/stockLedger.service');
@@ -244,7 +244,6 @@ describe('Inventory reconciliation — every mutation, one product', () => {
     //   (+60 received then −60 reversed), all of it still somewhere.
     expect(totalRm).toBe(500 + 200 - 50 - 200 - 7);
 
-    // eslint-disable-next-line no-console
     console.log('\n  Reconciliation trail:\n' + steps.map((s) => `    ${s.label.padEnd(34)} expected ${String(s.expectedQty).padStart(6)}  ledger ${String(s.net).padStart(6)}  balances ${String(s.lots).padStart(6)}`).join('\n'));
   });
 

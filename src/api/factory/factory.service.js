@@ -252,27 +252,53 @@ class FactoryService {
     };
   }
 
+  /**
+   * What a year would take with it if it were deleted: numbers issued from
+   * its series, and anything booked or raised inside its dates. A year with
+   * none of these has never been used — whatever its status says.
+   */
+  static async financialYearContents(fy) {
+    const { DocumentSeries } = require('../documentSeries/documentSeries.model');
+    const { JournalEntry } = require('../ledger/journalEntry.model');
+    const { SalesInvoice } = require('../invoicing/salesInvoice.model');
+    const { SalesOrder } = require('../sales/salesOrder.model');
+    const within = { [Op.between]: [fy.startDate, fy.endDate] };
+    const count = (Model, where) => Model.count({ where }).catch(() => 0);
+    const [usedSeries, journalEntries, invoices, orders] = await Promise.all([
+      count(DocumentSeries, { financialYearId: fy.id, nextSequence: { [Op.gt]: 1 } }),
+      count(JournalEntry, { entryDate: within }),
+      count(SalesInvoice, { invoiceDate: within }),
+      count(SalesOrder, { orderDate: within }),
+    ]);
+    return { usedSeries, journalEntries, invoices, orders };
+  }
+
   static async deleteFinancialYear(id) {
     const fy = await FinancialYear.findByPk(id);
     if (!fy) throw new NotFoundError('Financial year not found');
 
-    if (fy.status !== 'PLANNED') {
-      throw new ValidationError(`Cannot delete financial year with status "${fy.status}". Only Draft / Planned years can be deleted.`);
+    const contents = await this.financialYearContents(fy);
+    const isEmpty = Object.values(contents).every((n) => n === 0);
+
+    // A closed year is permanently locked — it cannot be reopened or edited,
+    // because its books have been audited. But a year that was closed with
+    // nothing in it (created and closed within seconds, as a duplicate 2027-28
+    // once was) has no books to protect, and locking it forever leaves the
+    // tenant with a duplicate code it can never remove. So: a PLANNED year may
+    // be deleted while its numbering is unused, as before; any other status
+    // may be deleted only when the year holds nothing at all.
+    if (fy.status !== 'PLANNED' && !isEmpty) {
+      throw new ValidationError(
+        `Cannot delete financial year with status "${fy.status}": it holds ${contents.journalEntries} journal entries, ` +
+          `${contents.invoices} invoices and ${contents.orders} orders, and ${contents.usedSeries} numbering series in use.`
+      );
     }
-
-    const { DocumentSeries } = require('../documentSeries/documentSeries.model');
-    const usedSeriesCount = await DocumentSeries.count({
-      where: {
-        financialYearId: fy.id,
-        nextSequence: { [Op.gt]: 1 },
-      },
-    });
-
-    if (usedSeriesCount > 0) {
+    if (contents.usedSeries > 0) {
       throw new ValidationError('Cannot delete financial year: transactions and document numbers have already been generated in this year.');
     }
 
     // Clean up any unused empty series
+    const { DocumentSeries } = require('../documentSeries/documentSeries.model');
     await DocumentSeries.destroy({ where: { financialYearId: fy.id } }).catch(() => {});
     await fy.destroy();
     return true;

@@ -107,7 +107,15 @@ const exportReportSchema = z.object({
   }),
 });
 
+/**
+ * A saved report is addressed by UUID. Anything else used to reach Postgres as
+ * `WHERE id = 'sales-summary'` and come back as a 500 — a client typo answered
+ * as a server fault.
+ */
+const idParamsSchema = z.object({ id: z.string().uuid('Report id must be a UUID') });
+
 module.exports = {
+  idParamsSchema,
   reportQuerySchema,
   exportQuerySchema,
   reportParamsSchema,

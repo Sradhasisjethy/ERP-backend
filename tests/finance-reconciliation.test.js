@@ -4,7 +4,7 @@ const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const {
-  Tenant, User, Organization, Factory, FinancialYear, Uom, HsnCode, Product, Party,
+  Tenant, User, Organization, Factory, FinancialYear, Uom, HsnCode, Party,
   JournalEntry, JournalLine, Account,
 } = require('../src/models/index');
 
@@ -257,7 +257,6 @@ describe('Finance reconciliation — a full trading period', () => {
     const expenses = await get(`/api/v1/reports/expense/register?factoryId=${F.factory.id}&page=1&limit=50`);
     expect(Number(expenses.body.data.summary.amountPaise)).toBe(await accountNet('5900'));
 
-    // eslint-disable-next-line no-console
     console.log('\n  Ledger trail:\n' + trail.map(([label, v]) => `    ${label.padEnd(38)} ${String(v).padStart(10)}`).join('\n'));
   });
 });

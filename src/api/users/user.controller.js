@@ -5,7 +5,6 @@ const { NotFoundError } = require('../../core/AppError');
 const { EmployeeDocument } = require('./employeeDocument.model');
 const fs = require('fs');
 const path = require('path');
-const { env } = require('../../config/env');
 const list = asyncHandler(async (req, res) => {
   const result = await userService.list(req.query);
   sendSuccess(res, result);

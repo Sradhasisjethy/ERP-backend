@@ -6,7 +6,7 @@ const { app } = require('../src/app');
 const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const {
-  Tenant, User, Organization, Factory, FinancialYear, Uom, Product, ProductCategory,
+  Tenant, User, Organization, Factory, FinancialYear, Uom, Product,
   MixDesign, MixDesignLine, Party, StockLot,
 } = require('../src/models/index');
 const { AgeingService } = require('../src/api/inventory/ageing.service');

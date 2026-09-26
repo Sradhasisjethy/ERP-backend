@@ -1,5 +1,3 @@
-const { TenantSettings } = require('../../settings/settings.model');
-
 /**
  * Presentation settings and value formatting for exports.
  *
@@ -21,6 +19,9 @@ const SETTING_KEYS = ['reports.currency', 'currency', 'reports.locale', 'locale'
 
 /** One lookup per export, not per cell. */
 const resolveFormatSettings = async () => {
+  // Required here, not at the top: the export worker threads load this file
+  // for the pure formatters and must not drag the database in with it.
+  const { TenantSettings } = require('../../settings/settings.model');
   const rows = await TenantSettings.findAll({ where: { key: SETTING_KEYS.map((k) => k) } }).catch(() => []);
   const byKey = new Map(rows.map((r) => [r.key, r.value]));
   const read = (...keys) => {

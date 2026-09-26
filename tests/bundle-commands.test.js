@@ -14,7 +14,7 @@ const { sequelize } = require('../src/config/database');
 const { resetDatabase } = require('./helpers/db');
 const {
   Tenant, User, Organization, Factory, FinancialYear, Uom, Product, HsnCode, Party,
-  PriceList, PriceListItem, SalesOrder, SalesOrderLine, AdGroup, AdGroupMember, UserFactory,
+  PriceList, PriceListItem, SalesOrderLine, AdGroup, AdGroupMember, UserFactory,
 } = require('../src/models/index');
 const { BundleRule } = require('../src/api/bundles/bundleRule.model');
 const { BundleComponent } = require('../src/api/bundles/bundleComponent.model');

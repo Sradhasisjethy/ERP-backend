@@ -1,4 +1,9 @@
-const bcrypt = require('bcryptjs');
+// Native bcrypt, not bcryptjs. Same algorithm, same hashes either way round —
+// but bcryptjs runs its ~100 ms of key stretching on the one Node thread,
+// where ten logins a second is a saturated core and a Monday-morning login
+// wave stalls every other request. The native build does the same work in
+// libuv's thread pool and hands the main thread back in under a millisecond.
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
@@ -9,7 +14,7 @@ const { env } = require('../../config/env');
 const { UnauthorizedError, NotFoundError, BadRequestError } = require('../../core/AppError');
 const { expandPermissions } = require('../../utils/permissionCatalog');
 const emailService = require('../../services/email.service');
-const { WebPermissions, SystemRoles, EmployeeStatus } = require('../../utils/constants');
+const { SystemRoles, EmployeeStatus } = require('../../utils/constants');
 const { permissionsForSystemRole } = require('../../utils/systemRolePermissions');
 const { RefreshToken } = require('./refreshToken.model');
 

@@ -1,9 +1,9 @@
-const { Op, fn, col, literal } = require('sequelize');
+const { Op, fn, col } = require('sequelize');
 const { StockLot } = require('./stockLot.model');
 const { StockReservation } = require('./stockReservation.model');
 const { StockTransfer } = require('../transfer/stockTransfer.model');
 const { StockTransferLine } = require('../transfer/stockTransferLine.model');
-const { ValidationError, NotFoundError } = require('../../core/AppError');
+const { ValidationError } = require('../../core/AppError');
 
 /**
  * M07 — stock reservation and the availability arithmetic every sales screen

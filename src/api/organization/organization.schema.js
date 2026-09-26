@@ -90,7 +90,6 @@ const listQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   sortBy: z.string().trim().min(1).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-  search: z.string().optional(),
   status: z.enum(['active', 'inactive']).optional(),
   organizationId: z.string().uuid().optional(),
   officeId: z.string().uuid().optional(),
