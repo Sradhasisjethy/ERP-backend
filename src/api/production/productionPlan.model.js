@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { BaseAuditedModel } = require('../../core/AuditedModel');
+const { Factory } = require('../factory/factory.model');
 
 /**
  * BR-12: "Production requirement = Ordered Qty - Available (uncommitted)
@@ -41,5 +42,7 @@ ProductionPlan.initAudited(
     tableName: 'production_plans',
   }
 );
+
+ProductionPlan.belongsTo(Factory, { as: 'factory', foreignKey: 'factoryId' });
 
 module.exports = { ProductionPlan };
