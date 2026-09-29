@@ -3,6 +3,7 @@ const { scopeListToFactories } = require('../../core/salesScope');
 const { ProductionService } = require('./production.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { renderProductionSheetPdf } = require('./productionSheetPdf.service');
+const { SettingsService } = require('../settings/settings.service');
 
 // Production Plan
 const generateProposal = asyncHandler(async (req, res) => {
@@ -47,7 +48,8 @@ const cancelEntry = asyncHandler(async (req, res) => {
 });
 const printSheet = asyncHandler(async (req, res) => {
   const { plan, lines } = await ProductionService.getSheetData(req.params.id);
-  const doc = renderProductionSheetPdf(plan, lines);
+  const display = await SettingsService.getDisplayPreferences();
+  const doc = renderProductionSheetPdf(plan, lines, { display });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${String(plan.planNumber || plan.id).replace(/\//g, '-')}-sheet.pdf"`);

@@ -7,6 +7,7 @@ const { Party } = require('../parties/party.model');
 const { StockLot } = require('../inventory/stockLot.model');
 const { SalesOrder } = require('../sales/salesOrder.model');
 const { SalesInvoice } = require('../invoicing/salesInvoice.model');
+const { SalesInvoiceLine } = require('../invoicing/salesInvoiceLine.model');
 const { PurchaseInvoice } = require('../purchasing/purchaseInvoice.model');
 const { DeliveryChallan } = require('../dispatch/deliveryChallan.model');
 const { ProductionEntry } = require('../production/productionEntry.model');
@@ -71,7 +72,7 @@ class DashboardService {
 
     const [
       productionToday, productionMTD, dispatchesToday, pendingOrders,
-      curingLots, deadLots, slowMovingLots, pendingApprovals, unreadAlerts,
+      curingLots, deadLots, slowMovingLots, totalLots, pendingApprovals, unreadAlerts,
     ] = await Promise.all([
       can('PRODUCTION_READ') ? ProductionEntry.sum('goodQty', { where: { ...factoryFilter, status: 'POSTED', productionDate: today } }) : null,
       can('PRODUCTION_READ') ? ProductionEntry.sum('goodQty', { where: { ...factoryFilter, status: 'POSTED', productionDate: { [Op.gte]: monthStart } } }) : null,
@@ -80,6 +81,7 @@ class DashboardService {
       can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, status: 'CURING' } }) : null,
       can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, ageingClass: 'DEAD', qtyAvailable: { [Op.gt]: 0 } } }) : null,
       can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, ageingClass: 'SLOW_MOVING', qtyAvailable: { [Op.gt]: 0 } } }) : null,
+      can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, qtyAvailable: { [Op.gt]: 0 } } }) : null,
       can('PRODUCTION_APPROVE_VARIANCE') ? MaterialConsumption.count({ where: { requiresApproval: true, approvedBy: null } }) : null,
       // The caller's own unread count — personal, so not gated on a module.
       Notification.count({ where: { readAt: null } }),
@@ -149,6 +151,12 @@ class DashboardService {
       widgets.deadStockLots = deadLots;
       widgets.slowMovingLots = slowMovingLots;
       widgets.reorderAlerts = reorderAlerts;
+      widgets.stockAgeingLots = {
+        freshLots: Math.max(0, Number(totalLots || 0) - Number(deadLots || 0) - Number(slowMovingLots || 0)),
+        slowMovingLots: Number(slowMovingLots || 0),
+        deadStockLots: Number(deadLots || 0),
+        totalLots: Number(totalLots || 0),
+      };
       widgets.curingCompletingThisWeek = curingSoon.map((l) => ({
         lotId: l.id, lotNumber: l.lotNumber, productName: l.product?.name,
         quantity: Number(l.qtyAvailable), originDate: l.originDate, curingDays: l.curingDays,
@@ -237,10 +245,27 @@ class DashboardService {
       return Number(row?.value || 0);
     };
 
-    const [deadPaise, totalPaise] = await Promise.all([
+    const [deadPaise, slowPaise, totalPaise] = await Promise.all([
       valueOfLots({ ageingClass: 'DEAD' }),
+      valueOfLots({ ageingClass: 'SLOW_MOVING' }),
       valueOfLots({}),
     ]);
+    const topVendorRows = await PurchaseInvoice.findAll({
+      attributes: [
+        'vendorPartyId',
+        [fn('SUM', col('amountPaise')), 'totalPaise'],
+        [fn('COUNT', col('PurchaseInvoice.id')), 'invoices'],
+      ],
+      where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.gte]: monthStart } },
+      include: [{ model: Party, as: 'vendor', attributes: ['name'] }],
+      group: ['PurchaseInvoice.vendorPartyId', 'vendor.id', 'vendor.name'],
+      order: [[literal('"totalPaise"'), 'DESC']],
+      limit: 5,
+      raw: true,
+      nest: true,
+    });
+
+    const freshPaise = Math.max(0, totalPaise - deadPaise - slowPaise);
 
     return {
       salesTodayPaise: Number(salesToday || 0),
@@ -255,6 +280,18 @@ class DashboardService {
       deadStockValuePaise: deadPaise,
       inventoryValuePaise: totalPaise,
       deadStockPercent: totalPaise > 0 ? Number(((deadPaise / totalPaise) * 100).toFixed(2)) : 0,
+      stockAgeing: {
+        freshPaise,
+        slowMovingPaise: slowPaise,
+        deadStockPaise: deadPaise,
+        totalPaise,
+      },
+      topVendors: topVendorRows.map((r) => ({
+        partyId: r.vendorPartyId,
+        name: r.vendor?.name || 'Unknown Vendor',
+        totalPaise: Number(r.totalPaise || 0),
+        invoices: Number(r.invoices || 0),
+      })),
     };
   }
 
@@ -278,10 +315,16 @@ class DashboardService {
       const point = { month: month.label, production: Number(production || 0) };
 
       if (includeFinancial) {
-        const sales = await SalesInvoice.sum('totalPaise', {
-          where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.between]: [month.start, month.end] } },
-        });
+        const [sales, purchases] = await Promise.all([
+          SalesInvoice.sum('totalPaise', {
+            where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.between]: [month.start, month.end] } },
+          }),
+          PurchaseInvoice.sum('amountPaise', {
+            where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.between]: [month.start, month.end] } },
+          }),
+        ]);
         point.salesPaise = Number(sales || 0);
+        point.purchasePaise = Number(purchases || 0);
       }
       series.push(point);
     }
@@ -326,6 +369,29 @@ class DashboardService {
       nest: true,
     });
 
+    // Top products by invoiced revenue this month
+    const topProductRows = await SalesInvoiceLine.findAll({
+      attributes: [
+        'productId',
+        [fn('SUM', col('taxableAmountPaise')), 'totalPaise'],
+        [fn('SUM', col('quantity')), 'totalQty'],
+      ],
+      include: [
+        {
+          model: SalesInvoice,
+          as: 'salesInvoice',
+          attributes: [],
+          where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.gte]: monthStart } },
+          required: true,
+        },
+        { model: Product, as: 'product', attributes: ['name'] },
+      ],
+      group: ['productId', 'product.id', 'product.name'],
+      order: [[literal('"totalPaise"'), 'DESC']],
+      limit: 5,
+      raw: true,
+    });
+
     return {
       pipeline,
       topCustomers: topRows.map((r) => ({
@@ -333,6 +399,12 @@ class DashboardService {
         name: r.customer?.name || 'Unknown',
         totalPaise: Number(r.totalPaise || 0),
         invoices: Number(r.invoices || 0),
+      })),
+      topProducts: topProductRows.map((r) => ({
+        productId: r.productId,
+        name: r['product.name'] || 'Unknown Product',
+        totalPaise: Number(r.totalPaise || 0),
+        totalQty: Number(r.totalQty || 0),
       })),
     };
   }
