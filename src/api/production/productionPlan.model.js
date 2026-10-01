@@ -27,6 +27,10 @@ ProductionPlan.initAudited(
       type: DataTypes.DATEONLY,
       allowNull: false,
     },
+    planNumber: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     status: {
       type: DataTypes.ENUM('PROPOSED', 'CONFIRMED'),
       allowNull: false,

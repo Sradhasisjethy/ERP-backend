@@ -46,7 +46,23 @@ class ProductionService {
         openQtyByProduct.set(line.productId, (openQtyByProduct.get(line.productId) || 0) + net);
       }
 
-      const plan = await ProductionPlan.create({ factoryId, planDate, status: 'PROPOSED' }, { transaction });
+      let planNumber;
+      try {
+        const financialYearId = await getCurrentFinancialYearId(transaction);
+        const allocated = await DocumentNumberingService.allocate('PRODUCTION_PLAN', {
+          factoryId,
+          financialYearId,
+          prefix: 'PP',
+          transaction,
+        });
+        planNumber = allocated.documentNumber;
+      } catch {
+        const dateStr = String(planDate || '').replace(/-/g, '');
+        const shortId = crypto.randomUUID().slice(0, 8).toUpperCase();
+        planNumber = `PP-${dateStr}-${shortId}`;
+      }
+
+      const plan = await ProductionPlan.create({ factoryId, planDate, planNumber, status: 'PROPOSED' }, { transaction });
       const lines = [];
 
       for (const [productId, totalOrdered] of openQtyByProduct.entries()) {
