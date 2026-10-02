@@ -1,5 +1,5 @@
 const { sequelize } = require('../../config/database');
-const { searchWhere } = require('../../utils/pagination');
+const { searchWhere, toOrder } = require('../../utils/pagination');
 const { SalesInvoice } = require('./salesInvoice.model');
 const { SalesInvoiceLine } = require('./salesInvoiceLine.model');
 const { SalesInvoiceChallan } = require('./salesInvoiceChallan.model');
@@ -23,6 +23,8 @@ const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { addPaise } = require('../../utils/money');
+
+const INVOICE_SORTABLE = ['invoiceNumber', 'invoiceDate', 'status', 'totalPaise', 'createdAt'];
 
 const getCurrentFinancialYearId = async (transaction) => {
   const fy = await FinancialYear.findOne({ where: { isCurrent: true }, transaction });
@@ -49,7 +51,7 @@ class InvoicingService {
    * `openOnly` drops anything already settled, which is what a payment screen
    * wants. Listing screens leave it off and get the full history.
    */
-  static async listInvoices(page, limit, { customerPartyId, status, search, openOnly, saleChannel, baseWhere = {} } = {}) {
+  static async listInvoices(page, limit, { customerPartyId, status, search, openOnly, saleChannel, sortBy, sortDir, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
     const where = { ...baseWhere };
     if (customerPartyId) where.customerPartyId = customerPartyId;
@@ -64,7 +66,7 @@ class InvoicingService {
       limit,
       offset,
       include: [{ model: Party, as: 'customer' }],
-      order: [['invoiceDate', 'DESC']],
+      order: toOrder(sortBy, sortDir, INVOICE_SORTABLE, [['invoiceDate', 'DESC']]),
     });
 
     const rows = await this.withOutstanding(result.rows);

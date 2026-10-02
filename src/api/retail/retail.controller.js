@@ -14,13 +14,15 @@ const { ForbiddenError } = require('../../core/AppError');
  * receivables ageing without any of them knowing this module exists.
  */
 const listCounterSales = asyncHandler(async (req, res) => {
-  const { page, limit, factoryId, customerPartyId, status, search } = req.query;
+  const { page, limit, factoryId, customerPartyId, status, search, sortBy, sortDir } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await InvoicingService.listInvoices(Number(page) || 1, Number(limit) || 20, {
     customerPartyId,
     status,
     search,
     saleChannel: 'COUNTER',
+    sortBy,
+    sortDir,
     baseWhere,
   });
   sendList(res, req, maskRateFields(data, req), 'Counter sales retrieved successfully');

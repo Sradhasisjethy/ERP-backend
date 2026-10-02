@@ -90,9 +90,9 @@ const cancelPurchaseInvoice = asyncHandler(async (req, res) => {
 
 // --- FR-M11-1: purchase indents ---
 const listIndents = asyncHandler(async (req, res) => {
-  const { page, limit, factoryId, status, search } = req.query;
+  const { page, limit, factoryId, status, search, sortBy, sortDir } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
-  sendList(res, req, await IndentService.list(Number(page), Number(limit), { status, search, baseWhere }), 'Purchase indents retrieved successfully');
+  sendList(res, req, await IndentService.list(Number(page), Number(limit), { status, search, sortBy, sortDir, baseWhere }), 'Purchase indents retrieved successfully');
 });
 /**
  * BR-29 for indents, the same way guardPO does it for purchase orders.

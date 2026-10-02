@@ -10,9 +10,11 @@ const { Uom } = require('../products/uom.model');
 const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
-const { searchWhere } = require('../../utils/pagination');
+const { searchWhere, toOrder } = require('../../utils/pagination');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../../core/AppError');
 const { getUserId } = require('../../core/tenantContext');
+
+const INDENT_SORTABLE = ['indentNumber', 'indentDate', 'requiredByDate', 'status', 'createdAt'];
 
 const getCurrentFinancialYearId = async (transaction) => {
   const fy = await FinancialYear.findOne({ where: { isCurrent: true }, transaction });
@@ -38,12 +40,18 @@ const withLines = {
 };
 
 class IndentService {
-  static async list(page, limit, { status, search, baseWhere = {} } = {}) {
+  static async list(page, limit, { status, search, sortBy, sortDir, baseWhere = {} } = {}) {
     const offset = (page - 1) * limit;
     const where = { ...baseWhere };
     if (status) where.status = status;
     if (search) Object.assign(where, searchWhere(search, ['indentNumber', 'remarks']));
-    return PurchaseIndent.findAndCountAll({ where, limit, offset, ...withLines, order: [['indentDate', 'DESC']] });
+    return PurchaseIndent.findAndCountAll({
+      where,
+      limit,
+      offset,
+      ...withLines,
+      order: toOrder(sortBy, sortDir, INDENT_SORTABLE, [['indentDate', 'DESC'], ['indentNumber', 'DESC']]),
+    });
   }
 
   static async get(id) {
