@@ -49,7 +49,7 @@ factoryRouter.post('/factories/:id/users', authorize('FACTORY_CREATE'), validate
 factoryRouter.delete('/factories/:id/users/:userId', authorize('FACTORY_DELETE'), unassignUser);
 
 // Financial Years
-factoryRouter.get('/financial-years', authorize('FACTORY_READ'), listFinancialYears);
+factoryRouter.get('/financial-years', authorize('FACTORY_READ'), validate(listQuerySchema, 'query'), listFinancialYears);
 factoryRouter.get('/financial-years/current', authorize('FACTORY_READ'), getCurrentFinancialYear);
 factoryRouter.get('/financial-years/:id/periods', authorize('FACTORY_READ'), getFinancialYearPeriods);
 factoryRouter.get('/financial-years/:id/close-checklist', authorize('FACTORY_READ'), getCloseChecklist);

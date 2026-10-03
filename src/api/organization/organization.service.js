@@ -4,7 +4,7 @@ const { Office } = require('./office.model');
 const { Department } = require('./department.model');
 const { OfficeDepartment } = require('./officeDepartment.model');
 const { getTenantId } = require('../../core/tenantContext');
-const { NotFoundError } = require('../../core/AppError');
+const { NotFoundError, ValidationError } = require('../../core/AppError');
 
 class OrganizationService {
   // --- Organizations ---
@@ -178,6 +178,20 @@ class OrganizationService {
   static async createDepartment(data) {
     const { officeIds, ...deptData } = data;
     const tenantId = deptData.tenantId || getTenantId() || (deptData.organizationId ? (await Organization.findByPk(deptData.organizationId, { attributes: ['tenantId'] }))?.get('tenantId') : null);
+
+    if (deptData.code && deptData.organizationId) {
+      const existing = await Department.findOne({
+        where: {
+          organizationId: deptData.organizationId,
+          code: deptData.code,
+          ...(tenantId ? { tenantId } : {})
+        }
+      });
+      if (existing) {
+        throw new ValidationError(`Department with code "${deptData.code}" already exists in this organization`);
+      }
+    }
+
     const dept = await Department.create({ ...deptData, ...(tenantId ? { tenantId } : {}) });
     const finalTenantId = dept.tenantId || dept.get('tenantId') || tenantId;
 
@@ -201,8 +215,24 @@ class OrganizationService {
   static async updateDepartment(id, data) {
     const { officeIds, ...deptData } = data;
     const dept = await this.getDepartment(id);
-    await dept.update(deptData);
     const tenantId = dept.tenantId || dept.get('tenantId') || getTenantId();
+
+    if (deptData.code && (deptData.code !== dept.code || (deptData.organizationId && deptData.organizationId !== dept.organizationId))) {
+      const orgId = deptData.organizationId || dept.organizationId;
+      const existing = await Department.findOne({
+        where: {
+          organizationId: orgId,
+          code: deptData.code,
+          id: { [Op.ne]: id },
+          ...(tenantId ? { tenantId } : {})
+        }
+      });
+      if (existing) {
+        throw new ValidationError(`Department with code "${deptData.code}" already exists in this organization`);
+      }
+    }
+
+    await dept.update(deptData);
 
     if (Array.isArray(officeIds)) {
       await OfficeDepartment.destroy({ where: { departmentId: dept.id } });

@@ -80,9 +80,11 @@ class FactoryService {
   }
 
   // --- Financial Years ---
-  static async listFinancialYears(page, limit) {
-    const offset = (page - 1) * limit;
-    return FinancialYear.findAndCountAll({ limit, offset, order: [['startDate', 'DESC']] });
+  static async listFinancialYears(page = 1, limit = 10) {
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.max(1, Number(limit) || 10);
+    const offset = (pageNum - 1) * limitNum;
+    return FinancialYear.findAndCountAll({ limit: limitNum, offset, order: [['startDate', 'DESC']] });
   }
 
   static async getCurrentFinancialYear() {

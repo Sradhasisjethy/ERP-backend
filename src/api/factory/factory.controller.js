@@ -32,7 +32,9 @@ const deleteFactory = asyncHandler(async (req, res) => {
 // Financial Years
 const listFinancialYears = asyncHandler(async (req, res) => {
   const { page, limit, search } = req.query;
-  const data = await FactoryService.listFinancialYears(Number(page), Number(limit), { search });
+  const pageNum = Number(page) || 1;
+  const limitNum = Number(limit) || 10;
+  const data = await FactoryService.listFinancialYears(pageNum, limitNum, { search });
   sendList(res, req, data, 'Financial years retrieved successfully');
 });
 
