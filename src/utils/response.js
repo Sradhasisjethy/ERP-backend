@@ -129,7 +129,7 @@ const sendError = (res, error) => {
 
   // CORS refusals (app.js) are a client's origin, not a server fault.
   if (error && error.code === 'CORS_ORIGIN_REJECTED') {
-    logger.warn({ message: 'CORS origin rejected' });
+    logger.warn({ message: 'CORS origin rejected', origin: error.origin });
     return res.status(403).json({ success: false, message: 'Origin not allowed' });
   }
 

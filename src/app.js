@@ -77,8 +77,13 @@ app.use(helmet());
 // is the cheapest bandwidth win there is, and it costs a few hundred
 // microseconds per response.
 app.use(compression());
+const normalizeOrigin = (url) => {
+  if (!url) return '';
+  return url.trim().replace(/^["']|["']$/g, '').replace(/\/+$/, '');
+};
+
 const allowedOrigins = env.CORS_ORIGIN
-  ? env.CORS_ORIGIN.split(',').map((o) => o.trim())
+  ? env.CORS_ORIGIN.split(',').map((o) => normalizeOrigin(o)).filter(Boolean)
   : ['http://localhost:3000'];
 
 // Development used to accept *any* origin, with credentials. NODE_ENV defaults
@@ -87,14 +92,21 @@ const allowedOrigins = env.CORS_ORIGIN
 // now adds only the local machine to the configured list.
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
+// Always allow Vercel domains (production, preview branch, and deployments)
+const VERCEL_ORIGIN = /^https:\/\/[a-zA-Z0-9.-]+\.vercel\.app$/i;
+
 const isOriginAllowed = (origin) => {
   if (!origin) return true;
-  if (allowedOrigins.includes(origin)) return true;
-  if (env.NODE_ENV === 'development' && LOCAL_ORIGIN.test(origin)) return true;
+  const clean = normalizeOrigin(origin);
+
+  if (LOCAL_ORIGIN.test(clean)) return true;
+  if (VERCEL_ORIGIN.test(clean)) return true;
+
   return allowedOrigins.some((allowed) => {
+    if (allowed === clean) return true;
     if (allowed.includes('*')) {
       const escaped = allowed.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-      return new RegExp(`^${escaped}$`).test(origin);
+      return new RegExp(`^${escaped}$`, 'i').test(clean);
     }
     return false;
   });
@@ -110,6 +122,7 @@ app.use(
       // put in the message: it is caller-controlled text headed for the logs.
       const refused = new Error('Origin not allowed by CORS');
       refused.code = 'CORS_ORIGIN_REJECTED';
+      refused.origin = origin;
       return callback(refused);
     },
     credentials: true,
