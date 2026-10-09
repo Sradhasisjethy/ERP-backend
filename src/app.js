@@ -87,10 +87,23 @@ const allowedOrigins = env.CORS_ORIGIN
 // now adds only the local machine to the configured list.
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (env.NODE_ENV === 'development' && LOCAL_ORIGIN.test(origin)) return true;
+  return allowedOrigins.some((allowed) => {
+    if (allowed.includes('*')) {
+      const escaped = allowed.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+      return new RegExp(`^${escaped}$`).test(origin);
+    }
+    return false;
+  });
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || (env.NODE_ENV === 'development' && LOCAL_ORIGIN.test(origin))) {
+      if (isOriginAllowed(origin)) {
         return callback(null, true);
       }
       // Tagged so the error handler answers 403, not 500. The origin is not
