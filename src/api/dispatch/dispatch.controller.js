@@ -1,9 +1,11 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { assertMayOverrideLot } = require('../../core/lotOverride');
 const { hasPermission } = require('../../middlewares/authorize');
 const { scopeListToFactories, assertCanSeeRecord } = require('../../core/salesScope');
 const { DispatchService } = require('./dispatch.service');
 const { SettingsService } = require('../settings/settings.service');
 const { renderChallanPdf } = require('./challanPdf.service');
+const { contentDisposition } = require('../../utils/contentDisposition');
 const { sendSuccess, sendList } = require('../../utils/response');
 
 const listChallans = asyncHandler(async (req, res) => {
@@ -24,6 +26,7 @@ const createChallan = asyncHandler(async (req, res) => {
   // against the order the caller is dispatching.
   const { SalesService } = require('../sales/sales.service');
   await assertCanSeeRecord(req, await SalesService.getSalesOrder(req.body.salesOrderId), 'Sales order not found');
+  assertMayOverrideLot(req, req.body.lines);
   const data = await DispatchService.createChallan(req.body);
   sendSuccess(res, data, 'Delivery challan dispatched successfully', 201);
 });
@@ -36,6 +39,8 @@ const cancelChallan = asyncHandler(async (req, res) => {
 
 const printChallan = asyncHandler(async (req, res) => {
   const challan = await DispatchService.getChallan(req.params.id);
+  // The PDF is the same document getChallan returns, so the same plant check.
+  await assertCanSeeRecord(req, challan, 'Delivery challan not found');
 
   // BR-07: the rate, taxable value and tax columns are drawn only for someone
   // allowed to see money. A driver or a shop-floor user prints the same
@@ -50,7 +55,8 @@ const printChallan = asyncHandler(async (req, res) => {
   });
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${challan.challanNumber.replace(/\//g, '-')}.pdf"`);
+  // Via the helper: a legacy plant code can put a quote or non-Latin-1 text in the number.
+  res.setHeader('Content-Disposition', contentDisposition(`${challan.challanNumber.replace(/\//g, '-')}.pdf`, 'inline'));
   doc.pipe(res);
   doc.end();
 });

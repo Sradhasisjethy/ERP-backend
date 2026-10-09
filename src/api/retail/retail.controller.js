@@ -1,4 +1,5 @@
 const { asyncHandler } = require('../../core/asyncHandler');
+const { assertMayOverrideLot } = require('../../core/lotOverride');
 const { scopeListToFactories, assertCanUseFactory, assertCanSeeRecord } = require('../../core/salesScope');
 const { hasPermission } = require('../../middlewares/authorize');
 const { CounterSaleService } = require('./counterSale.service');
@@ -51,6 +52,7 @@ const createCounterSale = asyncHandler(async (req, res) => {
   // BR-29: a counter sale issues stock from a named factory, so the caller must
   // be allowed to act on that factory before anything else is read.
   await assertCanUseFactory(req, req.body.factoryId);
+  assertMayOverrideLot(req, req.body.lines);
 
   // Taking money is a separate grant from raising an invoice. The route gate
   // requires INVOICE_CREATE because every counter sale produces an invoice;
@@ -66,6 +68,7 @@ const createCounterSale = asyncHandler(async (req, res) => {
 });
 
 const cancelCounterSale = asyncHandler(async (req, res) => {
+  await assertCanSeeRecord(req, await InvoicingService.getInvoice(req.params.id), 'Counter sale not found');
   const data = await CounterSaleService.cancelCounterSale(req.params.id, req.body.reason);
   sendSuccess(res, data, `Counter sale cancelled — ${data.cancelledReceipts.length ? `payment ${data.cancelledReceipts.join(', ')} reversed with it` : 'no payment had been taken'}`);
 });

@@ -5,6 +5,7 @@ const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
 const { renderInvoicePdf } = require('./invoicePdf.service');
 const { SettingsService } = require('../settings/settings.service');
+const { contentDisposition } = require('../../utils/contentDisposition');
 
 const listInvoices = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, customerPartyId, status, search, openOnly, sortBy, sortDir } = req.query;
@@ -32,7 +33,8 @@ const printInvoice = asyncHandler(async (req, res) => {
   const doc = renderInvoicePdf(invoice, { display: await SettingsService.getDisplayPreferences() });
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${invoice.invoiceNumber.replace(/\//g, '-')}.pdf"`);
+  // Via the helper: a legacy plant code can put a quote or non-Latin-1 text in the number.
+  res.setHeader('Content-Disposition', contentDisposition(`${invoice.invoiceNumber.replace(/\//g, '-')}.pdf`, 'inline'));
   doc.pipe(res);
   doc.end();
 });

@@ -3,11 +3,30 @@ const { Account } = require('./account.model');
 const { JournalEntry } = require('./journalEntry.model');
 const { JournalLine } = require('./journalLine.model');
 const { Factory } = require('../factory/factory.model');
+const { FinancialYear } = require('../factory/financialYear.model');
 const { SystemAccounts } = require('./systemAccounts');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
-const { getUserId } = require('../../core/tenantContext');
+const { getUserId, getTenantId } = require('../../core/tenantContext');
 const { addPaise } = require('../../utils/money');
 const { logger } = require('../../utils/logger');
+
+/**
+ * The calendar day a DATEONLY column will actually store for `value`.
+ *
+ * The closed-year check used to read the first ten characters of the input,
+ * while Sequelize stores DATEONLY values as moment(value).format('YYYY-MM-DD')
+ * in the server's local zone. The two disagreed for any input carrying a time
+ * or an offset: '2025-04-01T00:00:00+14:00' was checked as 1 April (open year)
+ * and stored as 31 March (closed year). This mirrors the storage rule: a bare
+ * YYYY-MM-DD is taken as written, anything else as a local calendar day.
+ */
+const storedDay = (value) => {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 class LedgerService {
   static async getOrCreateSystemAccount(key, transaction) {
@@ -32,6 +51,7 @@ class LedgerService {
    */
   static async postJournal({ factoryId, entryDate, referenceType, referenceId, narration, lines, transaction }) {
     if (!lines || lines.length < 2) throw new ValidationError('A journal entry requires at least two lines');
+    await this.assertPeriodOpen(factoryId, entryDate, transaction);
 
     const resolvedLines = [];
     for (const line of lines) {
@@ -91,6 +111,43 @@ class LedgerService {
     );
 
     return this.getJournalEntry(entry.id, transaction);
+  }
+
+  /**
+   * A CLOSED financial year is the audited, permanently locked one (the year
+   * screen refuses to reopen or edit it), yet nothing stopped a document dated
+   * inside it from posting — the lock covered the year record, not its books.
+   * Every journal goes through postJournal, so this is the one place to hold
+   * the line.
+   *
+   * SOFT_CLOSED stays postable on purpose: the period screen labels it
+   * "Adjustments Only", and a rollover soft-closes the previous year
+   * automatically, so late invoices and year-end adjustments still land there.
+   *
+   * Reversals post through here too. reverseJournal dates them today by
+   * default, so cancelling an old document still works — the correction lands
+   * in the open year. Only a reversal that deliberately back-dates into a
+   * closed year (a cancelled depreciation run) is refused, which is the point.
+   */
+  static async assertPeriodOpen(factoryId, entryDate, transaction) {
+    if (!entryDate) return;
+    const day = storedDay(entryDate);
+    if (!day) throw new ValidationError('The entry date is not a valid date');
+
+    // Named explicitly: this also runs from jobs with no request context, where
+    // the model's tenant hook adds nothing and the lookup would span tenants.
+    const tenantId = getTenantId()
+      || (await Factory.unscoped().findByPk(factoryId, { attributes: ['tenantId'], transaction }))?.tenantId;
+    if (!tenantId) return;
+
+    const closed = await FinancialYear.findOne({
+      where: { tenantId, status: 'CLOSED', startDate: { [Op.lte]: day }, endDate: { [Op.gte]: day } },
+      attributes: ['code'],
+      transaction,
+    });
+    if (closed) {
+      throw new ValidationError(`${day} is in a closed financial year (${closed.code}) — post it with a date in an open year`);
+    }
   }
 
   static async getJournalEntry(id, transaction) {
@@ -188,6 +245,18 @@ class LedgerService {
    */
   static PAYABLE_PARTY_TYPES = ['VENDOR', 'CONTRACTOR', 'LABOUR'];
 
+  /**
+   * BR-29 for party statements. A party (a customer, a vendor) is shared
+   * across plants, but each posting belongs to the plant on its journal entry
+   * — the same `je."factoryId"` the catalog ledger report scopes on
+   * (reports/definitions/parties.js). Returns undefined for an unrestricted
+   * caller so their queries are unchanged.
+   */
+  static factoryScopeWhere(allowedFactoryIds) {
+    if (allowedFactoryIds === null || allowedFactoryIds === undefined) return undefined;
+    return { factoryId: { [Op.in]: allowedFactoryIds.length ? allowedFactoryIds : ['00000000-0000-0000-0000-000000000000'] } };
+  }
+
   static async isPayableParty(partyId) {
     const { Party } = require('../parties/party.model');
     const party = await Party.findByPk(partyId, { attributes: ['partyType'] });
@@ -209,17 +278,18 @@ class LedgerService {
    *    Running the same subtraction for both party types made every vendor
    *    statement read negative.
    */
-  static async getPartyLedger(partyId, { page = 1, limit = 50 } = {}) {
+  static async getPartyLedger(partyId, { page = 1, limit = 50, allowedFactoryIds = null } = {}) {
     const offset = (page - 1) * limit;
     const payable = await this.isPayableParty(partyId);
     const signed = (debit, credit) => (payable ? credit - debit : debit - credit);
+    const entryWhere = this.factoryScopeWhere(allowedFactoryIds);
 
     const { rows, count } = await JournalLine.findAndCountAll({
       where: { partyId },
       limit,
       offset,
       include: [
-        { model: JournalEntry, as: 'journalEntry' },
+        { model: JournalEntry, as: 'journalEntry', where: entryWhere, required: true },
         { model: Account, as: 'account', attributes: ['code', 'name'] },
       ],
       order: [
@@ -237,7 +307,7 @@ class LedgerService {
         where: { partyId },
         limit: offset,
         offset: 0,
-        include: [{ model: JournalEntry, as: 'journalEntry', attributes: [] }],
+        include: [{ model: JournalEntry, as: 'journalEntry', attributes: [], where: entryWhere, required: true }],
         order: [
           [{ model: JournalEntry, as: 'journalEntry' }, 'entryDate', 'ASC'],
           [{ model: JournalEntry, as: 'journalEntry' }, 'createdAt', 'ASC'],
@@ -274,13 +344,18 @@ class LedgerService {
    * system is a reconciliation failure, and the statement convention is the
    * one that matches how the number is read.
    */
-  static async getPartyOutstanding(partyId) {
+  static async getPartyOutstanding(partyId, allowedFactoryIds = null) {
+    const entryWhere = this.factoryScopeWhere(allowedFactoryIds);
     const result = await JournalLine.findOne({
       attributes: [
-        [fn('COALESCE', fn('SUM', col('debitPaise')), 0), 'debit'],
-        [fn('COALESCE', fn('SUM', col('creditPaise')), 0), 'credit'],
+        [fn('COALESCE', fn('SUM', col('JournalLine.debitPaise')), 0), 'debit'],
+        [fn('COALESCE', fn('SUM', col('JournalLine.creditPaise')), 0), 'credit'],
       ],
       where: { partyId },
+      // Unrestricted callers keep the original join-free sum.
+      include: entryWhere
+        ? [{ model: JournalEntry, as: 'journalEntry', attributes: [], where: entryWhere, required: true }]
+        : [],
       raw: true,
     });
 

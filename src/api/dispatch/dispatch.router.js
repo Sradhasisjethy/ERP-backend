@@ -14,7 +14,8 @@ dispatchRouter.use(authenticate, tenantScope, auditContext);
 dispatchRouter.get('/challans', authorize('DISPATCH_READ'), validate(listQuerySchema, 'query'), listChallans);
 dispatchRouter.post('/challans', authorize('DISPATCH_CREATE'), validate(createChallanSchema), createChallan);
 dispatchRouter.get('/challans/:id', authorize('DISPATCH_READ'), getChallan);
-dispatchRouter.put('/challans/:id/cancel', authorize('DISPATCH_MODIFY'), validate(cancelChallanSchema), cancelChallan);
+// Named grant: cancelling a challan puts stock back, which DISPATCH_MODIFY does not imply.
+dispatchRouter.put('/challans/:id/cancel', authorize('DISPATCH_CANCEL'), validate(cancelChallanSchema), cancelChallan);
 dispatchRouter.get('/challans/:id/print', authorize('DISPATCH_READ'), validate(printQuerySchema, 'query'), printChallan);
 
 module.exports = { dispatchRouter };

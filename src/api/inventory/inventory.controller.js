@@ -4,15 +4,19 @@ const { StockLedgerService } = require('./stockLedger.service');
 const { StockAdjustmentService } = require('./stockAdjustment.service');
 const { ReservationService } = require('./reservation.service');
 const { StockSummaryService } = require('./stockSummary.service');
-const { scopeListToFactories, assertCanUseFactory } = require('../../core/salesScope');
+const { scopeListToFactories, assertCanUseFactory, assertCanSeeRecord } = require('../../core/salesScope');
 const { sendSuccess, sendList } = require('../../utils/response');
+const { maskRateFields } = require('../../utils/fieldMasking');
+
+// BR-27: every response here can carry a product (or a lot/line with one), and
+// products have cost and price columns. Masked at the controller like sales is.
 
 const listLots = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, productId, status, search, sortBy, sortDir } = req.query;
   // BR-29: stock is location data. Without this every factory's lots came back.
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await StockLedgerService.listLots(Number(page), Number(limit), { productId, status, search, sortBy, sortDir, baseWhere });
-  sendList(res, req, data, 'Stock lots retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Stock lots retrieved successfully');
 });
 
 /**
@@ -27,14 +31,14 @@ const listStockByMaterial = asyncHandler(async (req, res) => {
   const data = await StockSummaryService.listByMaterial(Number(page), Number(limit), {
     category, search, hideZero, baseWhere,
   });
-  sendList(res, req, data, 'Stock by material retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Stock by material retrieved successfully');
 });
 
 const listLedgerEntries = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, productId, lotId, movementType, search, sortBy, sortDir } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await StockLedgerService.listLedgerEntries(Number(page), Number(limit), { productId, lotId, movementType, search, sortBy, sortDir, baseWhere });
-  sendList(res, req, data, 'Stock ledger entries retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Stock ledger entries retrieved successfully');
 });
 
 const getStockBalance = asyncHandler(async (req, res) => {
@@ -64,25 +68,27 @@ const listAdjustments = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, productId, lotId, sortBy, sortDir } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await StockAdjustmentService.list(Number(page), Number(limit), { productId, lotId, sortBy, sortDir, baseWhere });
-  sendList(res, req, data, 'Stock adjustments retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Stock adjustments retrieved successfully');
 });
 
 const createAdjustment = asyncHandler(async (req, res) => {
   await assertCanUseFactory(req, req.body.factoryId);
   const data = await StockAdjustmentService.create(req.body);
-  sendSuccess(res, data, 'Stock adjustment recorded successfully', 201);
+  sendSuccess(res, maskRateFields(data, req), 'Stock adjustment recorded successfully', 201);
 });
 
 const releaseLotEarly = asyncHandler(async (req, res) => {
+  // BR-29: overriding another location's curing is the same breach as reading its stock.
+  await assertCanSeeRecord(req, await StockLedgerService.getLot(req.params.id), 'Stock lot not found');
   const data = await StockLedgerService.releaseLotEarly(req.params.id, req.body.reason);
-  sendSuccess(res, data, 'Lot released early successfully');
+  sendSuccess(res, maskRateFields(data, req), 'Lot released early successfully');
 });
 
 const listReservations = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, productId, status, search } = req.query;
   const baseWhere = await scopeListToFactories(req, {}, factoryId);
   const data = await ReservationService.listAll(Number(page), Number(limit), { productId, status, search, baseWhere });
-  sendList(res, req, data, 'Stock reservations retrieved successfully');
+  sendList(res, req, maskRateFields(data, req), 'Stock reservations retrieved successfully');
 });
 
 module.exports = {

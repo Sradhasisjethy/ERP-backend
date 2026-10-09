@@ -1,6 +1,10 @@
 const { z } = require('zod');
+const { isoDate } = require('../../utils/zodFields');
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are YYYY-MM-DD');
+// One day's roster for a whole plant goes up in a single request, so this is
+// sized for headcount rather than for document lines.
+const MAX_ROSTER = 2000;
+
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Times are HH:MM');
 const ATTENDANCE_STATUSES = ['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'WEEKLY_OFF', 'HOLIDAY'];
 
@@ -9,7 +13,7 @@ const createLeaveTypeSchema = z.object({
     code: z.string().trim().min(1).max(20),
     name: z.string().trim().min(1).max(80),
     // 0 means there is no yearly quota — unpaid or exceptional leave.
-    daysPerYear: z.coerce.number().min(0).max(365).optional(),
+    daysPerYear: z.coerce.number().min(0).max(365).finite().optional(),
     isPaid: z.boolean().optional(),
     description: z.string().max(500).optional(),
   }),
@@ -18,7 +22,7 @@ const createLeaveTypeSchema = z.object({
 const updateLeaveTypeSchema = z.object({
   body: z.object({
     name: z.string().trim().min(1).max(80).optional(),
-    daysPerYear: z.coerce.number().min(0).max(365).optional(),
+    daysPerYear: z.coerce.number().min(0).max(365).finite().optional(),
     isPaid: z.boolean().optional(),
     isActive: z.boolean().optional(),
     description: z.string().max(500).optional().nullable(),
@@ -32,7 +36,7 @@ const applyLeaveSchema = z.object({
     fromDate: isoDate,
     toDate: isoDate,
     // Halves are allowed; omit for the whole span.
-    days: z.coerce.number().positive().optional(),
+    days: z.coerce.number().positive().finite().optional(),
     reason: z.string().max(1000).optional(),
   }),
 });
@@ -45,8 +49,8 @@ const decideLeaveSchema = z.object({
 });
 
 const leaveListQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
   employeeId: z.string().uuid().optional(),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']).optional(),
   from: isoDate.optional(),
@@ -72,13 +76,13 @@ const markAttendanceSchema = z.object({
           note: z.string().max(500).optional(),
         })
       )
-      .min(1),
+      .min(1).max(MAX_ROSTER),
   }),
 });
 
 const attendanceListQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(200).default(10),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(200).finite().default(10),
   employeeId: z.string().uuid().optional(),
   status: z.enum(ATTENDANCE_STATUSES).optional(),
   from: isoDate.optional(),

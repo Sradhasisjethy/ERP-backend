@@ -11,7 +11,7 @@ const { StockLedgerService } = require('../inventory/stockLedger.service');
 const { ReservationService } = require('../inventory/reservation.service');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../../core/AppError');
 const { addPaise } = require('../../utils/money');
-const { toOrder } = require('../../utils/pagination');
+const { toOrder, containsPattern } = require('../../utils/pagination');
 const { NotificationsService } = require('../notifications/notifications.service');
 const { BundleExpansionService } = require('../bundles/bundleExpansion.service');
 const { BundleDocumentService } = require('../bundles/bundleDocument.service');
@@ -128,9 +128,9 @@ class SalesService {
     const customerInclude = { model: Party, as: 'customer' };
     if (search) {
       where[Op.or] = [
-        { orderNumber: { [Op.iLike]: `%${search}%` } },
-        { poReferenceNumber: { [Op.iLike]: `%${search}%` } },
-        { '$customer.name$': { [Op.iLike]: `%${search}%` } },
+        { orderNumber: { [Op.iLike]: containsPattern(search) } },
+        { poReferenceNumber: { [Op.iLike]: containsPattern(search) } },
+        { '$customer.name$': { [Op.iLike]: containsPattern(search) } },
       ];
     }
 

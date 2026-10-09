@@ -3,6 +3,7 @@ const {
   UniqueConstraintError,
   ForeignKeyConstraintError,
   OptimisticLockError,
+  DatabaseError,
 } = require('sequelize');
 const { AppError } = require('../core/AppError');
 const { logger } = require('./logger');
@@ -70,7 +71,9 @@ const sendError = (res, error) => {
   }
 
   if (error instanceof UniqueConstraintError) {
-    logger.warn({ message: error.message, fields: error.fields });
+    // Field names only: for Postgres, `error.fields` maps each key column to the
+    // value that collided — a duplicate employee email went into the logs whole.
+    logger.warn({ message: 'Unique constraint violated', fields: Object.keys(error.fields || {}) });
     return res.status(409).json({
       success: false,
       message: 'A record with these details already exists.',
@@ -91,6 +94,43 @@ const sendError = (res, error) => {
       success: false,
       message: error.errors?.map((e) => e.message).join(', ') || 'Validation error',
     });
+  }
+
+  // Postgres refusing a value's *shape* is bad input, not a server fault: a
+  // non-UUID in a path, an unknown enum value, a string past its column length,
+  // a number out of range, an impossible date, a NUL byte in text or JSON. These
+  // all used to be 500s. The driver's message quotes the offending value, so it
+  // is not logged — but the stack, route and statement (without bound values)
+  // are, at warn level, so a server-side cause (a bad setting cast in SQL,
+  // say) can still be told apart from a user's typo.
+  const INPUT_ERROR_CODES = new Set(['22P02', '22001', '22003', '22007', '22008', '22023', '22021', '22P05']);
+  if (error instanceof DatabaseError && INPUT_ERROR_CODES.has(error.original?.code)) {
+    logger.warn({
+      message: 'Database rejected an input value',
+      code: error.original.code,
+      route: res.req ? `${res.req.method} ${res.req.baseUrl || ''}${res.req.route ? res.req.route.path : res.req.path}` : undefined,
+      sql: typeof error.sql === 'string' ? error.sql.slice(0, 500) : undefined,
+      stack: error.stack,
+    });
+    return res.status(400).json({ success: false, message: 'Some of the submitted values are not valid.' });
+  }
+
+  // body-parser and friends flag client errors with `expose` and a 4xx status
+  // (malformed JSON 400, too large 413, unsupported charset/encoding 415, too
+  // many parameters 413, aborted 400). They were reaching the 500 below.
+  if (error && error.expose && error.status >= 400 && error.status < 500) {
+    logger.warn({ message: 'Request rejected', type: error.type, status: error.status });
+    const messages = {
+      'entity.parse.failed': 'The request body is not valid JSON.',
+      'entity.too.large': 'The request is too large.',
+    };
+    return res.status(error.status).json({ success: false, message: messages[error.type] || 'The request could not be read.' });
+  }
+
+  // CORS refusals (app.js) are a client's origin, not a server fault.
+  if (error && error.code === 'CORS_ORIGIN_REJECTED') {
+    logger.warn({ message: 'CORS origin rejected' });
+    return res.status(403).json({ success: false, message: 'Origin not allowed' });
   }
 
   logger.error({ message: error?.message || 'Unknown error', stack: error?.stack });

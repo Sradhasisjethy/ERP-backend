@@ -104,7 +104,8 @@ beforeAll(async () => {
   const bGroup = await AdGroup.create({
     tenantId, name: 'Plant B staff',
     permissions: [
-      'LEDGER_READ', 'JOURNAL_READ', 'JOURNAL_CREATE', 'JOURNAL_MODIFY',
+      // Voucher cancel has its own grant since JOURNAL_CANCEL was split out.
+      'LEDGER_READ', 'JOURNAL_READ', 'JOURNAL_CREATE', 'JOURNAL_MODIFY', 'JOURNAL_CANCEL',
       'FIXED_ASSET_READ', 'FIXED_ASSET_CREATE', 'FIXED_ASSET_MODIFY',
       'CASH_REGISTER_READ', 'CASH_REGISTER_CREATE', 'CASH_REGISTER_MODIFY',
       'STAFF_ATTENDANCE_READ', 'STAFF_ATTENDANCE_CREATE', 'VIEW_RATES',

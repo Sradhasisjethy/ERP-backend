@@ -1,5 +1,5 @@
 const { asyncHandler } = require('../../core/asyncHandler');
-const { scopeListToFactories } = require('../../core/salesScope');
+const { scopeListToFactories, assertCanSeeRecord } = require('../../core/salesScope');
 const { WorkforceService } = require('./workforce.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
@@ -11,7 +11,9 @@ const listMaterialIssues = asyncHandler(async (req, res) => {
   sendList(res, req, await WorkforceService.listMaterialIssues(Number(page), Number(limit), { contractorPartyId, search, baseWhere }), 'Material issues retrieved successfully');
 });
 const getMaterialIssue = asyncHandler(async (req, res) => {
-  sendSuccess(res, await WorkforceService.getMaterialIssue(req.params.id), 'Material issue retrieved successfully');
+  const record = await WorkforceService.getMaterialIssue(req.params.id);
+  await assertCanSeeRecord(req, record, 'Contractor material issue not found');
+  sendSuccess(res, record, 'Material issue retrieved successfully');
 });
 const issueMaterial = asyncHandler(async (req, res) => {
   sendSuccess(res, await WorkforceService.issueMaterialToContractor(req.body), 'Material issued to contractor successfully', 201);
@@ -25,7 +27,9 @@ const listContractorEntries = asyncHandler(async (req, res) => {
   sendList(res, req, maskRateFields(data, req), 'Contractor production entries retrieved successfully');
 });
 const getContractorEntry = asyncHandler(async (req, res) => {
-  sendSuccess(res, maskRateFields(await WorkforceService.getContractorEntry(req.params.id), req), 'Contractor production entry retrieved successfully');
+  const record = await WorkforceService.getContractorEntry(req.params.id);
+  await assertCanSeeRecord(req, record, 'Contractor production entry not found');
+  sendSuccess(res, maskRateFields(record, req), 'Contractor production entry retrieved successfully');
 });
 const createContractorEntry = asyncHandler(async (req, res) => {
   sendSuccess(res, await WorkforceService.createContractorProductionEntry(req.body), 'Contractor production entry posted successfully', 201);
@@ -53,6 +57,8 @@ const createAdvance = asyncHandler(async (req, res) => {
   sendSuccess(res, await WorkforceService.createAdvance(req.body), 'Advance posted successfully', 201);
 });
 const cancelAdvance = asyncHandler(async (req, res) => {
+  // BR-29: reversing another location's advance is the same breach as reading it.
+  await assertCanSeeRecord(req, await WorkforceService.getAdvance(req.params.id), 'Advance not found');
   sendSuccess(res, await WorkforceService.cancelAdvance(req.params.id, req.body.reason), 'Advance cancelled successfully');
 });
 

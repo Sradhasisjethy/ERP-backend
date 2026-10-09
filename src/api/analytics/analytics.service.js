@@ -1,4 +1,5 @@
 const { Op, fn, col, literal } = require('sequelize');
+const { containsPattern } = require('../../utils/pagination');
 const { StockLot } = require('../inventory/stockLot.model');
 const { StockLedgerEntry } = require('../inventory/stockLedgerEntry.model');
 const { Product } = require('../products/product.model');
@@ -277,9 +278,18 @@ class AnalyticsService {
   }
 
   // --- Document search ---
-  static async searchDocuments(query, { limit = 10 } = {}) {
+  /**
+   * `allowedFactoryIds` is the caller's BR-29 restriction (null = unrestricted).
+   * Without it a plant-restricted user could enumerate every plant's document
+   * numbers and dates by typing a prefix. Every searched type carries a plain
+   * `factoryId`, so one predicate scopes them all.
+   */
+  static async searchDocuments(query, { limit = 10, allowedFactoryIds = null } = {}) {
     if (!query || query.trim().length < 2) return [];
-    const like = { [Op.iLike]: `%${query.trim()}%` };
+    const like = { [Op.iLike]: containsPattern(query.trim()) };
+    const scope = allowedFactoryIds === null
+      ? {}
+      : { factoryId: { [Op.in]: allowedFactoryIds.length ? allowedFactoryIds : ['00000000-0000-0000-0000-000000000000'] } };
 
     const searches = [
       { documentType: 'SalesOrder', Model: SalesOrder, numberField: 'orderNumber', dateField: 'orderDate' },
@@ -292,7 +302,7 @@ class AnalyticsService {
 
     const results = await Promise.all(
       searches.map(async ({ documentType, Model, numberField, dateField }) => {
-        const rows = await Model.findAll({ where: { [numberField]: like }, limit, order: [[dateField, 'DESC']], raw: true });
+        const rows = await Model.findAll({ where: { [numberField]: like, ...scope }, limit, order: [[dateField, 'DESC']], raw: true });
         return rows.map((row) => ({ documentType, id: row.id, number: row[numberField], date: row[dateField] }));
       })
     );

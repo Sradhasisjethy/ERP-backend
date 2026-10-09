@@ -21,6 +21,7 @@ const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { addPaise } = require('../../utils/money');
+const { assertExists } = require('../../core/masterGuards');
 
 const RETURN_MONEY = ['subtotalPaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'totalAmountPaise'];
 const RETURN_LINE_MONEY = ['ratePaise', 'taxableAmountPaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'lineTotalPaise'];
@@ -360,7 +361,7 @@ class ReturnsService {
         await StockLedgerService.consumeFifo({
           factoryId: record.factoryId, productId: line.productId, quantity: line.quantity,
           movementType: 'RETURN_OUT', referenceType: 'SalesReturn', referenceId: record.id,
-          overrideLotId: line.createdLotId, overrideReason: 'Sales return cancelled', transaction,
+          overrideLotId: line.createdLotId, overrideReason: 'Sales return cancelled', overrideAnyStatus: true, transaction,
         });
       }
       await reverseJournalFor('SalesReturn', record.id, reason, transaction);
@@ -397,6 +398,9 @@ class ReturnsService {
     if (!lines || !lines.length) throw new ValidationError('A purchase return requires at least one line');
 
     return sequelize.transaction(async (transaction) => {
+      // The FKs alone accept another tenant's ids, which every read then includes.
+      await assertExists(Party, vendorPartyId, 'Vendor', { transaction });
+      await assertExists(Product, lines.map((l) => l.productId), 'Product', { transaction });
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('PURCHASE_RETURN', { factoryId, financialYearId, prefix: 'PR', transaction });
 
@@ -408,6 +412,8 @@ class ReturnsService {
           factoryId, productId: line.productId, quantity: line.quantity, movementType: 'RETURN_OUT',
           referenceType: 'PurchaseReturn', referenceId: purchaseReturn.id,
           overrideLotId: line.lotId, overrideReason: line.lotId ? (line.overrideReason || reason) : undefined,
+          // Rejected (QC_FAILED / held) goods are exactly what goes back to a vendor.
+          overrideAnyStatus: true,
           transaction,
         });
         await PurchaseReturnLine.create(
@@ -468,6 +474,8 @@ class ReturnsService {
     if (!amountPaise || amountPaise <= 0) throw new ValidationError('amountPaise must be positive');
 
     return sequelize.transaction(async (transaction) => {
+      await assertExists(Party, customerPartyId, 'Customer', { transaction });
+      await assertExists(SalesInvoice, salesInvoiceId, 'Sales invoice', { transaction });
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('CREDIT_NOTE', { factoryId, financialYearId, prefix: 'CN', transaction });
 
@@ -521,6 +529,7 @@ class ReturnsService {
     if (!amountPaise || amountPaise <= 0) throw new ValidationError('amountPaise must be positive');
 
     return sequelize.transaction(async (transaction) => {
+      await assertExists(Party, vendorPartyId, 'Vendor', { transaction });
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('DEBIT_NOTE', { factoryId, financialYearId, prefix: 'DN', transaction });
 

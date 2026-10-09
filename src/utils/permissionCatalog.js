@@ -67,6 +67,21 @@ const withImportExport = (resource) => ({
 });
 const READ_ONLY = [Actions.READ];
 
+/**
+ * `<RESOURCE>_CANCEL` — reversing a document that has already posted to stock
+ * or the books.
+ *
+ * A grant, not an action, so it never comes along with MODIFY or a legacy
+ * `_WRITE` (expandPermissions only widens those into CREATE/MODIFY/DELETE).
+ * Correcting a draft and unwinding a posted invoice are different decisions,
+ * and the second is the one a fraud runs through.
+ */
+const cancelGrant = (resourceKey, what) => ({
+  code: `${resourceKey}_CANCEL`,
+  label: `Cancel ${what}`,
+  description: 'Reverse a posted document and its ledger/stock postings. Not implied by edit rights.',
+});
+
 /** Wildcard held by the seeded Platform Admin role. */
 const WILDCARD = '*';
 
@@ -126,7 +141,27 @@ const PERMISSION_CATALOG = Object.freeze([
       { key: 'EMPLOYEE', label: 'Users', actions: CRUD },
       { key: 'ROLE', label: 'Roles & Permissions', actions: CRUD },
       withImportExport({ key: 'ORG', label: 'Organization Structure', actions: CRUD }),
-      { key: 'FACTORY', label: 'Locations & Financial Years', actions: CRUD },
+      {
+        key: 'FACTORY',
+        label: 'Locations & Financial Years',
+        actions: CRUD,
+        // Named grants because FACTORY_MODIFY is an everyday admin grant
+        // (rename a plant, fix an address); these change what the books and
+        // the stock rules allow, so they are given deliberately, never by
+        // coming along with it.
+        grants: [
+          {
+            code: 'FACTORY_POLICY_MODIFY',
+            label: 'Change location policies',
+            description: 'Negative stock/cash, QC hold and the variance and dispatch tolerances on a location.',
+          },
+          {
+            code: 'FINANCIAL_YEAR_CLOSE',
+            label: 'Close, reopen and roll over financial years',
+            description: 'Soft-close or permanently close a year, reopen a soft-closed one, or make a new year current.',
+          },
+        ],
+      },
       { key: 'SETTINGS', label: 'System Settings', actions: CRUD },
       {
         key: 'MIGRATION',
@@ -142,7 +177,28 @@ const PERMISSION_CATALOG = Object.freeze([
     module: 'Masters',
     description: 'Reference data the rest of the system is built on',
     resources: [
-      withImportExport({ key: 'PARTY', label: 'Parties (Customers, Vendors, Contractors, Labour)', actions: CRUD }),
+      withImportExport({
+        key: 'PARTY',
+        label: 'Parties (Customers, Vendors, Contractors, Labour)',
+        actions: CRUD,
+        // A named grant, not PARTY_READ: store keepers and sales staff need a
+        // party's name and GSTIN, not its labourers' Aadhaar or bank accounts.
+        // Without it those fields come back masked to the last four characters.
+        grants: [
+          {
+            code: 'PARTY_SENSITIVE_READ',
+            label: 'View party identity and bank details',
+            description: 'Aadhaar, PAN, bank account and IFSC, ESIC/UAN, date of birth and emergency contact, unmasked.',
+          },
+          // Separate from PARTY_MODIFY because changing a vendor's bank account
+          // is how a payment gets diverted; fixing a phone number is not.
+          {
+            code: 'PARTY_SENSITIVE_MODIFY',
+            label: 'Edit party identity, bank and commission details',
+            description: 'Change bank account, IFSC, beneficiary, PAN, Aadhaar, ESIC/UAN or commission terms on an existing party.',
+          },
+        ],
+      }),
       withImportExport({ key: 'PRODUCT', label: 'Products, BOM, UoM & Categories', actions: CRUD }),
       withImportExport({ key: 'VEHICLE', label: 'Vehicles', actions: CRUD }),
       withImportExport({ key: 'PRICING', label: 'Price Lists', actions: CRUD }),
@@ -168,9 +224,19 @@ const PERMISSION_CATALOG = Object.freeze([
       },
       { key: 'LEAD', label: 'Leads & Follow-ups', actions: CRUD },
       { key: 'QUOTATION', label: 'Quotations', actions: CRUD },
-      { key: 'DISPATCH', label: 'Delivery Challans', actions: CRUD },
-      { key: 'INVOICE', label: 'Sales Invoices', actions: CRUD },
-      { key: 'RETURN', label: 'Returns & Credit/Debit Notes', actions: CRUD },
+      { key: 'DISPATCH', label: 'Delivery Challans', actions: CRUD, grants: [cancelGrant('DISPATCH', 'delivery challans')] },
+      {
+        key: 'INVOICE',
+        label: 'Sales Invoices',
+        actions: CRUD,
+        grants: [cancelGrant('INVOICE', 'sales invoices and counter sales')],
+      },
+      {
+        key: 'RETURN',
+        label: 'Returns & Credit/Debit Notes',
+        actions: CRUD,
+        grants: [cancelGrant('RETURN', 'sales and purchase returns')],
+      },
     ],
   },
   {
@@ -183,6 +249,13 @@ const PERMISSION_CATALOG = Object.freeze([
         actions: CRUD,
         grants: [
           { code: 'PURCHASE_APPROVE', label: 'Approve indents', description: 'Deliberately separate from raising one (FR-M11-1).' },
+          // Split from PURCHASE_CREATE: booking a goods receipt is a stores job,
+          // posting the vendor's bill raises a payable in the books.
+          {
+            code: 'PURCHASE_INVOICE_CREATE',
+            label: 'Post purchase invoices',
+            description: 'Book a vendor bill against a goods receipt, which raises the payable. Not needed for POs, indents or receipts.',
+          },
         ],
       },
     ],
@@ -244,14 +317,19 @@ const PERMISSION_CATALOG = Object.freeze([
     module: 'Finance',
     description: 'Money in, money out, and the books',
     resources: [
-      { key: 'RECEIPT', label: 'Receipts', actions: CRUD },
-      { key: 'PAYMENT', label: 'Payments', actions: CRUD },
+      { key: 'RECEIPT', label: 'Receipts', actions: CRUD, grants: [cancelGrant('RECEIPT', 'receipts')] },
+      { key: 'PAYMENT', label: 'Payments', actions: CRUD, grants: [cancelGrant('PAYMENT', 'payments and cheques')] },
       { key: 'EXPENSE', label: 'Expenses', actions: CRUD },
       { key: 'CASH_REGISTER', label: 'Counter Cash Register', actions: CRUD },
-      { key: 'FINANCE_ADJUSTMENT', label: 'Finance Adjustments', actions: CRUD },
+      {
+        key: 'FINANCE_ADJUSTMENT',
+        label: 'Finance Adjustments',
+        actions: CRUD,
+        grants: [cancelGrant('FINANCE_ADJUSTMENT', 'credit and debit notes')],
+      },
       { key: 'LEDGER', label: 'Ledger, Trial Balance & Financial Statements', actions: READ_ONLY },
       withImportExport({ key: 'ACCOUNT', label: 'Chart of Accounts & Bank Accounts', actions: CRUD }),
-      { key: 'JOURNAL', label: 'Journal & Contra Vouchers', actions: CRUD },
+      { key: 'JOURNAL', label: 'Journal & Contra Vouchers', actions: CRUD, grants: [cancelGrant('JOURNAL', 'journal vouchers')] },
       { key: 'FIXED_ASSET', label: 'Fixed Assets & Depreciation', actions: CRUD },
       { key: 'GSTR', label: 'GST Returns', actions: READ_ONLY },
       {

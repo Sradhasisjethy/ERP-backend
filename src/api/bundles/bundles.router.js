@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const { z } = require('zod');
+const { isoDate, MAX_SEARCH, MAX_LINES, MAX_QTY } = require('../../utils/zodFields');
 const { authenticate } = require('../../middlewares/auth');
 const { tenantScope } = require('../../middlewares/tenantScope');
 const { auditContext } = require('../../middlewares/auditContext');
@@ -7,10 +8,12 @@ const { authorize } = require('../../middlewares/authorize');
 const { validate } = require('../../middlewares/validate');
 const { enforceFactoryScope } = require('../../middlewares/factoryScope');
 const { asyncHandler } = require('../../core/asyncHandler');
+const { assertCanSeeRecord } = require('../../core/salesScope');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { BundleRulesService, OverrideReasonCodesService } = require('./bundleRules.service');
 const { BundleReportsService } = require('./bundleReports.service');
 const { BundleAvailabilityService } = require('./bundleAvailability.service');
+const { SalesService } = require('../sales/sales.service');
 
 /**
  * Bundle master data and reporting.
@@ -23,13 +26,13 @@ const { BundleAvailabilityService } = require('./bundleAvailability.service');
 
 const componentSchema = z.object({
   componentProductId: z.string().uuid(),
-  quantity: z.coerce.number().positive(),
+  quantity: z.coerce.number().positive().finite().max(MAX_QTY),
   scalingMode: z.enum(['PROPORTIONAL', 'FIXED']).optional(),
   // Optional: the server takes the product's own unit, and rejects any other.
   uomId: z.string().uuid().optional(),
   isMandatory: z.boolean().optional(),
   defaultSelected: z.boolean().optional(),
-  sequence: z.coerce.number().int().optional(),
+  sequence: z.coerce.number().int().finite().optional(),
 });
 
 const createRuleSchema = z.object({
@@ -37,11 +40,11 @@ const createRuleSchema = z.object({
     code: z.string().trim().min(2).max(50),
     name: z.string().trim().min(2).max(200),
     parentProductId: z.string().uuid(),
-    effectiveFrom: z.string().trim().min(1),
-    priority: z.coerce.number().int().optional(),
+    effectiveFrom: isoDate,
+    priority: z.coerce.number().int().finite().optional(),
     bundleType: z.enum(['EXPLODED', 'ASSEMBLED']).optional(),
     taxTreatment: z.enum(['INDEPENDENT', 'COMPOSITE', 'MIXED']).optional(),
-    components: z.array(componentSchema).min(1),
+    components: z.array(componentSchema).min(1).max(MAX_LINES),
   }),
 });
 
@@ -49,25 +52,25 @@ const updateRuleSchema = z.object({
   body: z.object({
     name: z.string().trim().min(2).max(200).optional(),
     parentProductId: z.string().uuid().optional(),
-    effectiveFrom: z.string().trim().min(1).optional(),
-    priority: z.coerce.number().int().optional(),
+    effectiveFrom: isoDate.optional(),
+    priority: z.coerce.number().int().finite().optional(),
     bundleType: z.enum(['EXPLODED', 'ASSEMBLED']).optional(),
     taxTreatment: z.enum(['INDEPENDENT', 'COMPOSITE', 'MIXED']).optional(),
-    components: z.array(componentSchema).min(1).optional(),
+    components: z.array(componentSchema).min(1).max(MAX_LINES).optional(),
   }),
 });
 
 const publishSchema = z.object({
-  body: z.object({ effectiveFrom: z.string().trim().min(1).optional() }).optional(),
+  body: z.object({ effectiveFrom: isoDate.optional() }).optional(),
 });
 
 const listRulesQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(20),
   parentProductId: z.string().uuid().optional(),
   status: z.enum(['DRAFT', 'ACTIVE', 'SUPERSEDED', 'ARCHIVED']).optional(),
-  search: z.string().trim().min(1).optional(),
-  sortBy: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
@@ -81,15 +84,15 @@ const reasonSchema = z.object({
 
 const attachRateQuerySchema = z.object({
   groupBy: z.enum(['product', 'salesperson', 'location']).default('product'),
-  fromDate: z.string().trim().min(1),
-  toDate: z.string().trim().min(1),
+  fromDate: isoDate,
+  toDate: isoDate,
   factoryId: z.string().uuid().optional(),
   parentProductId: z.string().uuid().optional(),
 });
 
 const bundleAtpQuerySchema = z.object({
   factoryId: z.string().uuid(),
-  onDate: z.string().trim().min(1).optional(),
+  onDate: isoDate.optional(),
 });
 
 const bundlesRouter = Router();
@@ -144,7 +147,17 @@ bundlesRouter.post('/reason-codes', authorize('PRODUCT_CREATE'), validate(reason
   sendSuccess(res, await OverrideReasonCodesService.create(req.body), 'Reason code created successfully', 201);
 }));
 
-bundlesRouter.put('/reason-codes/:code', authorize('PRODUCT_MODIFY'), asyncHandler(async (req, res) => {
+// Only the three editable columns, and strict so a stray `code` in the body is
+// a 400 rather than silently ignored: the code is the key and never changes.
+const updateReasonSchema = z.object({
+  body: z.object({
+    label: z.string().trim().min(1).max(200).optional(),
+    requiresNote: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  }).strict(),
+});
+
+bundlesRouter.put('/reason-codes/:code', authorize('PRODUCT_MODIFY'), validate(updateReasonSchema), asyncHandler(async (req, res) => {
   sendSuccess(res, await OverrideReasonCodesService.update(req.params.code, req.body), 'Reason code updated successfully');
 }));
 
@@ -162,6 +175,9 @@ bundlesRouter.get('/reports/attach-rate', authorize('ANALYTICS_READ'), enforceFa
 }));
 
 bundlesRouter.get('/orders/:salesOrderId/override-history', authorize('SALES_READ'), asyncHandler(async (req, res) => {
+  // The id names an order, not a factory, so enforceFactoryScope cannot see it:
+  // BR-29 is checked on the order itself, as GET /sales/orders/:id does.
+  await assertCanSeeRecord(req, await SalesService.getSalesOrder(req.params.salesOrderId), 'Sales order not found');
   sendSuccess(res, await BundleReportsService.overrideHistory(req.params.salesOrderId), 'Override history retrieved successfully');
 }));
 

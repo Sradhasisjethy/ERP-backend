@@ -1,6 +1,6 @@
 const { z } = require('zod');
+const { isoDate, MAX_SEARCH, MAX_LINES, MAX_QTY, MAX_PAISE } = require('../../utils/zodFields');
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are YYYY-MM-DD');
 
 const prospectBody = z.object({
   name: z.string().trim().min(1).max(160),
@@ -11,10 +11,10 @@ const prospectBody = z.object({
 
 const lineBody = z.object({
   productId: z.string().uuid(),
-  quantity: z.coerce.number().positive(),
+  quantity: z.coerce.number().positive().finite().max(MAX_QTY),
   // Omit to price from the customer's list, then WHOLESALE, then RETAIL.
-  ratePaise: z.coerce.number().int().min(0).optional(),
-  discountPercent: z.coerce.number().min(0).max(100).optional(),
+  ratePaise: z.coerce.number().int().min(0).finite().max(MAX_PAISE).optional(),
+  discountPercent: z.coerce.number().min(0).max(100).finite().optional(),
 });
 
 const createQuotationSchema = z.object({
@@ -27,7 +27,7 @@ const createQuotationSchema = z.object({
       prospect: prospectBody.optional(),
       // Quoting a lead moves it to QUOTED in the pipeline.
       leadId: z.string().uuid().optional(),
-      lines: z.array(lineBody).min(1),
+      lines: z.array(lineBody).min(1).max(MAX_LINES),
       notes: z.string().max(2000).optional(),
       terms: z.string().max(4000).optional(),
     })
@@ -43,7 +43,7 @@ const updateQuotationSchema = z.object({
     validUntil: isoDate.optional(),
     customerPartyId: z.string().uuid().optional(),
     prospect: prospectBody.optional(),
-    lines: z.array(lineBody).min(1).optional(),
+    lines: z.array(lineBody).min(1).max(MAX_LINES).optional(),
     notes: z.string().max(2000).optional().nullable(),
     terms: z.string().max(4000).optional().nullable(),
   }),
@@ -65,13 +65,13 @@ const convertSchema = z.object({
 });
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
   factoryId: z.string().uuid().optional(),
   customerPartyId: z.string().uuid().optional(),
   // EXPIRED is not a stored status — it means still open and past its date.
   status: z.enum(['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'CONVERTED', 'CANCELLED', 'EXPIRED']).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
 });
 
 module.exports = { createQuotationSchema, updateQuotationSchema, statusSchema, convertSchema, listQuerySchema };

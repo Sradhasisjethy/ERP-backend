@@ -1,5 +1,6 @@
 const { asyncHandler } = require('../../core/asyncHandler');
 const { scopeListToFactories, assertCanUseFactory, assertCanSeeRecord } = require('../../core/salesScope');
+const { getAllowedFactoryIds } = require('../../core/factoryAccess');
 const { PaymentsService } = require('./payments.service');
 const { ChequeService } = require('./cheque.service');
 const { sendSuccess, sendList } = require('../../utils/response');
@@ -18,7 +19,9 @@ const getReceipt = asyncHandler(async (req, res) => {
 });
 const createReceipt = asyncHandler(async (req, res) => {
   await assertCanUseFactory(req, req.body.factoryId);
-  sendSuccess(res, await PaymentsService.createReceipt(req.body), 'Receipt posted successfully', 201);
+  // The allocated invoices carry their own plants; the service checks each one.
+  const allowedFactoryIds = await getAllowedFactoryIds(req);
+  sendSuccess(res, await PaymentsService.createReceipt({ ...req.body, allowedFactoryIds }), 'Receipt posted successfully', 201);
 });
 const cancelReceipt = asyncHandler(async (req, res) => {
   await assertCanSeeRecord(req, await PaymentsService.getReceipt(req.params.id), 'Receipt not found');
@@ -38,7 +41,8 @@ const getPayment = asyncHandler(async (req, res) => {
 });
 const createPayment = asyncHandler(async (req, res) => {
   await assertCanUseFactory(req, req.body.factoryId);
-  sendSuccess(res, await PaymentsService.createPayment(req.body), 'Payment posted successfully', 201);
+  const allowedFactoryIds = await getAllowedFactoryIds(req);
+  sendSuccess(res, await PaymentsService.createPayment({ ...req.body, allowedFactoryIds }), 'Payment posted successfully', 201);
 });
 const cancelPayment = asyncHandler(async (req, res) => {
   await assertCanSeeRecord(req, await PaymentsService.getPayment(req.params.id), 'Payment not found');
@@ -46,24 +50,34 @@ const cancelPayment = asyncHandler(async (req, res) => {
 });
 
 // --- FR-M18-7: cheque lifecycle ---
+// BR-29: each action loads the cheque first so another location's cheque 404s.
 const listCheques = asyncHandler(async (req, res) => {
   const { page, limit, factoryId, status, direction, partyId, search } = req.query;
-  const data = await ChequeService.list(Number(page), Number(limit), { factoryId, status, direction, partyId, search });
+  // factoryId was only an optional filter, so a plant-restricted user saw every
+  // plant's cheques. The scope narrows it to the caller's plants.
+  const scope = await scopeListToFactories(req, {}, factoryId);
+  const data = await ChequeService.list(Number(page), Number(limit), { factoryId: scope.factoryId, status, direction, partyId, search });
   sendList(res, req, maskRateFields(data, req), 'Cheques retrieved successfully');
 });
 const getCheque = asyncHandler(async (req, res) => {
-  sendSuccess(res, maskRateFields(await ChequeService.get(req.params.id), req), 'Cheque retrieved successfully');
+  const cheque = await ChequeService.get(req.params.id);
+  await assertCanSeeRecord(req, cheque, 'Cheque not found');
+  sendSuccess(res, maskRateFields(cheque, req), 'Cheque retrieved successfully');
 });
 const presentCheque = asyncHandler(async (req, res) => {
+  await assertCanSeeRecord(req, await ChequeService.get(req.params.id), 'Cheque not found');
   sendSuccess(res, await ChequeService.present(req.params.id, req.body), 'Cheque marked presented');
 });
 const clearCheque = asyncHandler(async (req, res) => {
+  await assertCanSeeRecord(req, await ChequeService.get(req.params.id), 'Cheque not found');
   sendSuccess(res, await ChequeService.clear(req.params.id, req.body), 'Cheque cleared');
 });
 const bounceCheque = asyncHandler(async (req, res) => {
+  await assertCanSeeRecord(req, await ChequeService.get(req.params.id), 'Cheque not found');
   sendSuccess(res, await ChequeService.bounce(req.params.id, req.body), 'Cheque marked bounced and the underlying entry reversed');
 });
 const cancelCheque = asyncHandler(async (req, res) => {
+  await assertCanSeeRecord(req, await ChequeService.get(req.params.id), 'Cheque not found');
   sendSuccess(res, await ChequeService.cancel(req.params.id, req.body.reason), 'Cheque cancelled');
 });
 

@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../../utils/pagination');
 const { Product } = require('../../products/product.model');
 const { ProductCategory } = require('../../products/productCategory.model');
 const { Uom } = require('../../products/uom.model');
@@ -27,7 +28,7 @@ const STATUS = {
 const ID_NOTE = 'Filled in by Export. Leave blank for a new record.';
 
 const search = (query, columns) =>
-  query.search ? { [Op.or]: columns.map((column) => ({ [column]: { [Op.iLike]: `%${query.search}%` } })) } : {};
+  query.search ? { [Op.or]: columns.map((column) => ({ [column]: { [Op.iLike]: containsPattern(query.search) } })) } : {};
 
 const products = {
   key: 'products',

@@ -26,7 +26,9 @@ purchasingRouter.get('/receipts/:id', authorize('PURCHASE_READ'), controller.get
 purchasingRouter.put('/receipts/:id/cancel', authorize('PURCHASE_DELETE'), validate(schema.reasonSchema), controller.cancelGoodsReceipt);
 
 purchasingRouter.get('/invoices', authorize('PURCHASE_READ'), validate(schema.listQuerySchema, 'query'), controller.listPurchaseInvoices);
-purchasingRouter.post('/invoices', authorize('PURCHASE_CREATE'), validate(schema.createPurchaseInvoiceSchema), controller.createPurchaseInvoice);
+// Its own grant, not PURCHASE_CREATE: stores book goods receipts, but posting
+// the vendor's bill raises a payable and belongs with purchase or accounts.
+purchasingRouter.post('/invoices', authorize('PURCHASE_INVOICE_CREATE'), validate(schema.createPurchaseInvoiceSchema), controller.createPurchaseInvoice);
 purchasingRouter.get('/invoices/:id', authorize('PURCHASE_READ'), controller.getPurchaseInvoice);
 // There is deliberately no endpoint to set paymentStatus by hand. It is
 // derived from allocations by PaymentsService; letting it be written directly

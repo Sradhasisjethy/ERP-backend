@@ -8,3 +8,16 @@ npm-debug.log*
 coverage/
 .DS_Store
 uploads/avatars/
+
+# User uploads hold personal data (offer letters, ID scans) and must never be
+# committed. Only the brand assets the login page needs are tracked.
+uploads/*
+!uploads/assets/
+
+# Credentials that must never be committed
+firebase-service-account*.json
+*.pem
+*.key
+
+# Security assessment: lists open vulnerabilities. This repository is public.
+brain/security/

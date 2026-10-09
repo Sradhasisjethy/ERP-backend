@@ -1,4 +1,3 @@
-const { SystemRoles } = require('./constants');
 
 /**
  * Kept for the handful of call sites that name their fields explicitly, and so
@@ -14,12 +13,29 @@ const RATE_FIELDS_DEFAULT = ['ratePaise', 'standardCostPaise', 'totalAmountPaise
  */
 const MONEY_FIELD = /Paise$/;
 
-const VIEW_RATES_BYPASS_ROLES = [SystemRoles.PLATFORM_ADMIN, SystemRoles.TENANT_OWNER];
-
+/**
+ * The same rule `authorize` enforces. The old local check matched the literal
+ * string only, so a role holding the `*` wildcard was masked here while every
+ * route gate let it through. Required lazily: authorize.js pulls in the
+ * permission catalog, and keeping this module's load free of it avoids a
+ * require cycle for anything the catalog may one day import.
+ */
 const hasViewRates = (req) => {
-  if (VIEW_RATES_BYPASS_ROLES.includes(req.user.role)) return true;
-  return (req.user.permissions || []).includes('VIEW_RATES');
+  const { hasPermission } = require('../middlewares/authorize');
+  return hasPermission(req?.user, 'VIEW_RATES');
 };
+
+/**
+ * Sequelize `attributes` that leave out every money column of `Model`.
+ *
+ * For includes that only need a product's identity (name, code, uom) — the lot,
+ * ledger and plan lists. Masking still runs on the response; this keeps the
+ * figures from being loaded at all, so a controller that forgets to mask
+ * cannot leak what it never had.
+ */
+const nonMoneyAttributes = (Model) => ({
+  exclude: Object.keys(Model.rawAttributes).filter((key) => MONEY_FIELD.test(key)),
+});
 
 /**
  * Nulls out rate/amount fields before a response is serialized, per BR-27:
@@ -57,8 +73,11 @@ const maskRateFields = (payload, req, fields = null) => {
     : (key) => MONEY_FIELD.test(key);
 
   // Depth-limited so a cyclic or unexpectedly deep graph cannot hang a request.
+  // Past the limit a nested record is dropped, not returned as-is: handing it
+  // back unwalked returned its *Paise keys unmasked.
   const strip = (value, depth = 0) => {
-    if (value === null || value === undefined || depth > 8) return value;
+    if (value === null || value === undefined) return value;
+    if (depth > 8) return typeof value === 'object' && !(value instanceof Date) ? null : value;
     if (Array.isArray(value)) return value.map((item) => strip(item, depth + 1));
     if (typeof value !== 'object') return value;
     // Dates, Buffers and the like are values, not records to walk into.
@@ -79,4 +98,4 @@ const maskRateFields = (payload, req, fields = null) => {
   return strip(payload);
 };
 
-module.exports = { maskRateFields, hasViewRates, RATE_FIELDS_DEFAULT, MONEY_FIELD };
+module.exports = { maskRateFields, hasViewRates, nonMoneyAttributes, RATE_FIELDS_DEFAULT, MONEY_FIELD };

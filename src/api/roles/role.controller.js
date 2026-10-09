@@ -63,7 +63,7 @@ const assignMember = asyncHandler(async (req, res) => {
 });
 
 const removeMember = asyncHandler(async (req, res) => {
-  await RoleService.removeMember(req.params.id, req.params.employeeId);
+  await RoleService.removeMember(req.params.id, req.params.employeeId, req.user);
   sendSuccess(res, null, 'Member removed successfully');
 });
 

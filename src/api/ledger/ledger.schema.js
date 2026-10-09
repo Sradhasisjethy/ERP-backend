@@ -1,19 +1,20 @@
 const { z } = require('zod');
+const { isoDate, MAX_TEXT, MAX_SEARCH, MAX_PAISE } = require('../../utils/zodFields');
 
 const trialBalanceQuerySchema = z.object({ factoryId: z.string().uuid().optional() });
 
 const partyLedgerQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(200).default(10),
-  search: z.string().trim().min(1).optional(),
-  sortBy: z.string().trim().min(1).optional(),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(200).finite().default(10),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 const cashBookQuerySchema = z.object({
   factoryId: z.string().uuid(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
   accountKey: z.enum(['CASH', 'BANK']).optional(),
   accountId: z.string().uuid().optional(),
 });
@@ -22,14 +23,14 @@ const cashBookQuerySchema = z.object({
 // { body, query, params } together. Query schemas above are flat.
 const openingBalanceBody = z.object({
   factoryId: z.string().uuid(),
-  asOfDate: z.string().min(10),
-  amountPaise: z.coerce.number().int().positive(),
+  asOfDate: isoDate,
+  amountPaise: z.coerce.number().int().positive().finite().max(MAX_PAISE),
   side: z.enum(['DEBIT', 'CREDIT']).optional(),
 });
 
 const accountFields = {
   name: z.string().trim().min(1).max(120),
-  accountGroup: z.string().min(1),
+  accountGroup: z.string().min(1).max(40),
   subType: z.enum(['BANK', 'CASH']).nullable().optional(),
   description: z.string().max(500).nullable().optional(),
   bankName: z.string().max(120).nullable().optional(),
@@ -68,34 +69,33 @@ const accountListQuerySchema = z.object({
 
 const voucherLineBody = z.object({
   accountId: z.string().uuid(),
-  debitPaise: z.coerce.number().int().min(0).default(0),
-  creditPaise: z.coerce.number().int().min(0).default(0),
+  debitPaise: z.coerce.number().int().min(0).finite().max(MAX_PAISE).default(0),
+  creditPaise: z.coerce.number().int().min(0).finite().max(MAX_PAISE).default(0),
 });
 
 const createVoucherSchema = z.object({
   body: z.object({
     factoryId: z.string().uuid(),
     voucherType: z.enum(['JOURNAL', 'CONTRA']),
-    voucherDate: z.string().min(10),
+    voucherDate: isoDate,
     narration: z.string().trim().min(1).max(1000),
     lines: z.array(voucherLineBody).min(2).max(50),
   }),
 });
 
 const cancelVoucherSchema = z.object({
-  body: z.object({ reason: z.string().trim().min(1) }),
+  body: z.object({ reason: z.string().trim().min(1).max(MAX_TEXT) }),
 });
 
 const voucherListQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
   factoryId: z.string().uuid().optional(),
   voucherType: z.enum(['JOURNAL', 'CONTRA']).optional(),
   status: z.enum(['POSTED', 'CANCELLED']).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
 });
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are YYYY-MM-DD');
 
 const profitAndLossQuerySchema = z.object({
   from: isoDate.optional(),

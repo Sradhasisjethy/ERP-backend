@@ -1,19 +1,20 @@
 const { z } = require('zod');
+const { isoDate, MAX_STRING, MAX_TEXT, MAX_SEARCH, MAX_LINES, MAX_QTY, MAX_PAISE } = require('../../utils/zodFields');
 
 const salesOrderBody = z.object({
   factoryId: z.string().uuid(),
   customerPartyId: z.string().uuid(),
-  orderDate: z.string(),
-  expectedDeliveryDate: z.string().optional(),
-  poReferenceNumber: z.string().optional(),
-  poAttachmentPath: z.string().optional(),
+  orderDate: isoDate,
+  expectedDeliveryDate: isoDate.optional(),
+  poReferenceNumber: z.string().max(MAX_STRING).optional(),
+  poAttachmentPath: z.string().max(MAX_STRING).optional(),
   allowCreditOverride: z.boolean().optional(),
   lines: z
     .array(
       z.object({
         productId: z.string().uuid(),
-        orderedQty: z.coerce.number().positive(),
-        ratePaise: z.coerce.number().int().min(0),
+        orderedQty: z.coerce.number().positive().finite().max(MAX_QTY),
+        ratePaise: z.coerce.number().int().min(0).finite().max(MAX_PAISE),
         // Decisions about this line's accessories, made while the order is
         // being typed rather than after it is saved. A salesperson on the phone
         // needs to say "no gasket, and make it four hooks" there and then;
@@ -30,9 +31,9 @@ const salesOrderBody = z.object({
               .object({
                 componentProductId: z.string().uuid(),
                 exclude: z.boolean().optional(),
-                qty: z.coerce.number().positive().optional(),
-                reasonCode: z.string().trim().min(1).optional(),
-                reasonNote: z.string().trim().min(1).optional(),
+                qty: z.coerce.number().positive().finite().max(MAX_QTY).optional(),
+                reasonCode: z.string().trim().min(1).max(50).optional(),
+                reasonNote: z.string().trim().min(1).max(MAX_TEXT).optional(),
               })
               // A removal without a reason is what makes the attach-rate report
               // meaningless, so it is refused at the edge rather than defaulted.
@@ -43,11 +44,11 @@ const salesOrderBody = z.object({
               .refine((o) => o.exclude || o.qty !== undefined, {
                 message: 'An accessory override must either exclude it or set a quantity',
               })
-          )
+          ).max(MAX_LINES)
           .optional(),
       })
     )
-    .min(1),
+    .min(1).max(MAX_LINES),
 });
 const createSalesOrderSchema = z.object({ body: salesOrderBody });
 
@@ -58,7 +59,7 @@ const updateSalesOrderSchema = z.object({
   body: salesOrderBody.partial().omit({ factoryId: true }),
 });
 
-const reasonSchema = z.object({ body: z.object({ reason: z.string().min(3) }) });
+const reasonSchema = z.object({ body: z.object({ reason: z.string().min(3).max(MAX_TEXT) }) });
 
 const atpQuerySchema = z.object({
   factoryId: z.string().uuid(),
@@ -66,14 +67,14 @@ const atpQuerySchema = z.object({
 });
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
-  search: z.string().trim().min(1).optional(),
-  sortBy: z.string().trim().min(1).optional(),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   factoryId: z.string().uuid().optional(),
   customerPartyId: z.string().uuid().optional(),
-  status: z.string().optional(),
+  status: z.string().max(MAX_STRING).optional(),
 });
 
 // ---- bundle commands (docs/specs/bundle-kitting.md §6) --------------------
@@ -84,21 +85,21 @@ const listQuerySchema = z.object({
 const addLineSchema = z.object({
   body: z.object({
     productId: z.string().uuid(),
-    orderedQty: z.coerce.number().positive(),
+    orderedQty: z.coerce.number().positive().finite().max(MAX_QTY),
     // Omitted means "use the price list", which is the normal case; sending one
     // is an explicit override.
-    ratePaise: z.coerce.number().int().nonnegative().optional(),
+    ratePaise: z.coerce.number().int().nonnegative().finite().max(MAX_PAISE).optional(),
   }),
 });
 
 const changeQuantitySchema = z.object({
-  body: z.object({ qty: z.coerce.number().positive() }),
+  body: z.object({ qty: z.coerce.number().positive().finite().max(MAX_QTY) }),
 });
 
 const suppressSchema = z.object({
   body: z.object({
-    reasonCode: z.string().trim().min(1, 'Choose a reason for removing this item'),
-    reasonNote: z.string().trim().min(1).optional(),
+    reasonCode: z.string().trim().min(1, 'Choose a reason for removing this item').max(50),
+    reasonNote: z.string().trim().min(1).max(MAX_TEXT).optional(),
   }),
 });
 
@@ -109,7 +110,7 @@ const restoreSchema = z.object({
 const addComponentSchema = z.object({
   body: z.object({
     productId: z.string().uuid(),
-    qty: z.coerce.number().positive().optional(),
+    qty: z.coerce.number().positive().finite().max(MAX_QTY).optional(),
   }),
 });
 

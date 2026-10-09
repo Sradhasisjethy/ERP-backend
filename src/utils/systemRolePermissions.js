@@ -27,7 +27,8 @@ const ALL_READS = ALL_PERMISSIONS.filter((code) => code.endsWith('_READ'));
  * Each is a deliberate, separately-granted act somewhere else in the system:
  * running the one-time opening-balance import, signing off a variance or an
  * indent, overriding a curing period or FIFO, or pushing an order past a
- * customer's credit limit. Holding them by virtue of a job title is exactly
+ * customer's credit limit, loosening a plant's stock/cash policy, or closing
+ * a financial year. Holding them by virtue of a job title is exactly
  * what the named-grant design exists to avoid.
  */
 const NEVER_BY_JOB_TITLE = new Set([
@@ -39,6 +40,23 @@ const NEVER_BY_JOB_TITLE = new Set([
   WebPermissions.OVERRIDE_LOT_SELECTION,
   WebPermissions.SALES_CREDIT_OVERRIDE,
   WebPermissions.SALES_BUNDLE_OVERRIDE_MANDATORY,
+  WebPermissions.FACTORY_POLICY_MODIFY,
+  WebPermissions.FINANCIAL_YEAR_CLOSE,
+  // Ends in _READ, so ALL_READS below would otherwise hand ORG_ADMIN every
+  // labourer's Aadhaar and bank account by job title.
+  WebPermissions.PARTY_SENSITIVE_READ,
+  // Editing a party's bank account is how a payment gets diverted.
+  WebPermissions.PARTY_SENSITIVE_MODIFY,
+  // Reversing a posted document. Today no system role's list reaches these,
+  // but they are named here so a future widening (say, ORG_ADMIN gaining
+  // transactional write) cannot bring them along by job title.
+  WebPermissions.INVOICE_CANCEL,
+  WebPermissions.RECEIPT_CANCEL,
+  WebPermissions.PAYMENT_CANCEL,
+  WebPermissions.JOURNAL_CANCEL,
+  WebPermissions.FINANCE_ADJUSTMENT_CANCEL,
+  WebPermissions.RETURN_CANCEL,
+  WebPermissions.DISPATCH_CANCEL,
 ]);
 
 /**
@@ -95,9 +113,12 @@ const permissionsForSystemRole = (role) => {
   }
 
   if (role === SystemRoles.HR_ADMIN) {
+    // Listed explicitly, not EMPLOYEE_WRITE: the legacy alias expands to
+    // DELETE as well, and deleting a user is not part of onboarding one.
     return [
       WebPermissions.EMPLOYEE_READ,
-      WebPermissions.EMPLOYEE_WRITE,
+      WebPermissions.EMPLOYEE_CREATE,
+      WebPermissions.EMPLOYEE_MODIFY,
       WebPermissions.ORG_READ,
       WebPermissions.ROLE_READ,
     ];

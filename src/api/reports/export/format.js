@@ -17,6 +17,44 @@ const DEFAULTS = Object.freeze({
 
 const SETTING_KEYS = ['reports.currency', 'currency', 'reports.locale', 'locale'];
 
+/**
+ * The stored locale if Intl accepts it, else the default. Settings are free
+ * JSONB, and one bad row ('en_IN', a number, an object) made every
+ * Intl.NumberFormat call throw a RangeError — every export of every report
+ * failed until someone found the row. Same stance as dateDisplay.js takes on
+ * an unknown timezone: a bad preference must not stop a document rendering.
+ */
+// formatValue calls this per cell, so answers are remembered; a tenant has one
+// locale, so the map stays tiny (and is capped in case it does not).
+const checkedLocales = new Map();
+const safeLocale = (value) => {
+  if (typeof value !== 'string' || !value.trim() || value.length > 35) return DEFAULTS.locale;
+  if (checkedLocales.has(value)) return checkedLocales.get(value);
+  let resolved = DEFAULTS.locale;
+  try {
+    const [canonical] = Intl.getCanonicalLocales(value.trim());
+    // Also constructed, because getCanonicalLocales accepts some tags that
+    // NumberFormat still refuses.
+    new Intl.NumberFormat(canonical);
+    resolved = canonical || DEFAULTS.locale;
+  } catch {
+    resolved = DEFAULTS.locale;
+  }
+  if (checkedLocales.size < 100) checkedLocales.set(value, resolved);
+  return resolved;
+};
+
+/** An ISO 4217 code Intl knows, else the default — it is printed in every header. */
+const safeCurrency = (value) => {
+  if (typeof value !== 'string' || !/^[A-Z]{3}$/.test(value.trim())) return DEFAULTS.currency;
+  try {
+    new Intl.NumberFormat('en', { style: 'currency', currency: value.trim() });
+    return value.trim();
+  } catch {
+    return DEFAULTS.currency;
+  }
+};
+
 /** One lookup per export, not per cell. */
 const resolveFormatSettings = async () => {
   // Required here, not at the top: the export worker threads load this file
@@ -33,8 +71,8 @@ const resolveFormatSettings = async () => {
     return null;
   };
 
-  const currency = read('reports.currency', 'currency') || DEFAULTS.currency;
-  const locale = read('reports.locale', 'locale') || DEFAULTS.locale;
+  const currency = safeCurrency(read('reports.currency', 'currency'));
+  const locale = safeLocale(read('reports.locale', 'locale'));
   return { ...DEFAULTS, currency, locale };
 };
 
@@ -74,7 +112,10 @@ const humanise = (value) =>
  */
 const formatValue = (value, column, settings = DEFAULTS) => {
   if (value === null || value === undefined || value === '') return '';
-  const { locale, decimalPlaces } = settings;
+  // Re-checked here: the worker threads receive settings by structured clone,
+  // and a caller could build them without resolveFormatSettings.
+  const { decimalPlaces } = settings;
+  const locale = safeLocale(settings.locale);
 
   switch (column.type) {
     case 'money':
@@ -137,4 +178,4 @@ const excelValue = (value, column) => {
   }
 };
 
-module.exports = { DEFAULTS, resolveFormatSettings, formatValue, formatDate, formatDateTime, humanise, excelNumberFormat, excelValue };
+module.exports = { DEFAULTS, safeLocale, safeCurrency, resolveFormatSettings, formatValue, formatDate, formatDateTime, humanise, excelNumberFormat, excelValue };

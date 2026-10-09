@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { ValidationError, ConflictError } = require('./AppError');
+const { ValidationError, ConflictError, NotFoundError } = require('./AppError');
 
 /**
  * Integrity guards shared by every master-data service.
@@ -100,4 +100,25 @@ const assertUsableProducts = async (Product, productIds, transaction) => {
   return products;
 };
 
-module.exports = { assertNoDependents, assertUnique, assertUsableParty, assertUsableProducts };
+/**
+ * Proves a foreign id taken from a request body names a row in *this* tenant.
+ *
+ * The database foreign key only proves the row exists somewhere, so another
+ * tenant's party id was accepted, stored, and then `include`d on every later
+ * read — handing over that tenant's name, GSTIN and address. The lookup here
+ * goes through the tenant-scoped model hooks, which is the whole point.
+ *
+ * Takes one id or an array of ids; null/undefined/empty is a no-op, because
+ * every reference this guards is optional. 404 rather than 400 so the answer
+ * is the same whether the id is another tenant's or simply made up.
+ */
+const assertExists = async (Model, ids, label, { transaction } = {}) => {
+  const unique = [...new Set((Array.isArray(ids) ? ids : [ids]).filter(Boolean))];
+  if (!unique.length) return;
+  const count = await Model.count({ where: { id: { [Op.in]: unique } }, transaction });
+  if (count !== unique.length) {
+    throw new NotFoundError(unique.length === 1 ? `${label} not found` : `One or more ${label}s were not found`);
+  }
+};
+
+module.exports = { assertNoDependents, assertUnique, assertUsableParty, assertUsableProducts, assertExists };

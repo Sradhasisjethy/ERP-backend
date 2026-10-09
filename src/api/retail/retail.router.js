@@ -29,9 +29,10 @@ retailRouter.post('/counter-sales', authorize('INVOICE_CREATE'), validate(create
 retailRouter.post('/counter-sales/quote', authorize('INVOICE_READ'), validate(quoteCounterSaleSchema), quoteCounterSale);
 retailRouter.get('/counter-sales/:id', authorize('INVOICE_READ'), getCounterSale);
 // Reverses the sale and the money it took, together. Gated on the same
-// permission as cancelling any other invoice; PAYMENT_MODIFY is not demanded
+// permission as cancelling any other invoice (INVOICE_CANCEL, a named grant
+// rather than INVOICE_MODIFY); PAYMENT_CANCEL is not demanded
 // on top, because the payment being reversed is part of the sale rather than a
 // separate act the counter chose to take.
-retailRouter.post('/counter-sales/:id/cancel', authorize('INVOICE_MODIFY'), validate(cancelCounterSaleSchema), cancelCounterSale);
+retailRouter.post('/counter-sales/:id/cancel', authorize('INVOICE_CANCEL'), validate(cancelCounterSaleSchema), cancelCounterSale);
 
 module.exports = { retailRouter };

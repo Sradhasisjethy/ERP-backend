@@ -12,7 +12,6 @@ const { PurchaseInvoice } = require('../purchasing/purchaseInvoice.model');
 const { DeliveryChallan } = require('../dispatch/deliveryChallan.model');
 const { ProductionEntry } = require('../production/productionEntry.model');
 const { MaterialConsumption } = require('../production/materialConsumption.model');
-const { Notification } = require('../notifications/notification.model');
 const { LedgerService } = require('../ledger/ledger.service');
 const { getInvoiceAllocatedAmount } = require('../payments/payments.service');
 
@@ -83,8 +82,11 @@ class DashboardService {
       can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, ageingClass: 'SLOW_MOVING', qtyAvailable: { [Op.gt]: 0 } } }) : null,
       can('INVENTORY_READ') ? StockLot.count({ where: { ...factoryFilter, qtyAvailable: { [Op.gt]: 0 } } }) : null,
       can('PRODUCTION_APPROVE_VARIANCE') ? MaterialConsumption.count({ where: { requiresApproval: true, approvedBy: null } }) : null,
-      // The caller's own unread count — personal, so not gated on a module.
-      Notification.count({ where: { readAt: null } }),
+      // The caller's unread count is personal, so it is filled in by the
+      // controller after the cache (which is shared by everyone with the same
+      // grants). This used to count every unread alert in the tenant —
+      // other people's personal alerts and other plants' included.
+      null,
     ]);
 
     // FR-M23-3: what finishes curing in the next 7 days is what the factory can
@@ -175,14 +177,16 @@ class DashboardService {
    * Widgets gated behind finance.view_rates. Never called — and therefore never
    * present in the response — for users who lack it (AC-14.1).
    */
-  static async getFinancialWidgets(factoryIds) {
+  static async getFinancialWidgets(factoryIds, { includePurchase = true } = {}) {
     const factoryFilter = factoryScope(factoryIds);
     const { today, monthStart } = await boundaries();
 
     const [salesToday, salesMTD, purchaseMTD] = await Promise.all([
       SalesInvoice.sum('totalPaise', { where: { ...factoryFilter, status: 'POSTED', invoiceDate: today } }),
       SalesInvoice.sum('totalPaise', { where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.gte]: monthStart } } }),
-      PurchaseInvoice.sum('amountPaise', { where: { ...factoryFilter, invoiceDate: { [Op.gte]: monthStart } } }),
+      includePurchase
+        ? PurchaseInvoice.sum('amountPaise', { where: { ...factoryFilter, invoiceDate: { [Op.gte]: monthStart } } })
+        : null,
     ]);
 
     // Cash/bank per factory, so a manager can see where the money actually is.
@@ -250,7 +254,9 @@ class DashboardService {
       valueOfLots({ ageingClass: 'SLOW_MOVING' }),
       valueOfLots({}),
     ]);
-    const topVendorRows = await PurchaseInvoice.findAll({
+    // Vendor spend is purchasing data: not computed for someone who cannot
+    // open a purchase invoice, the same rule as purchaseMTD above.
+    const topVendorRows = !includePurchase ? [] : await PurchaseInvoice.findAll({
       attributes: [
         'vendorPartyId',
         [fn('SUM', col('amountPaise')), 'totalPaise'],
@@ -270,7 +276,7 @@ class DashboardService {
     return {
       salesTodayPaise: Number(salesToday || 0),
       salesMTDPaise: Number(salesMTD || 0),
-      purchaseMTDPaise: Number(purchaseMTD || 0),
+      purchaseMTDPaise: includePurchase ? Number(purchaseMTD || 0) : null,
       cashBalancePaise: cashTotal,
       bankBalancePaise: bankTotal,
       cashByFactory,
@@ -296,7 +302,7 @@ class DashboardService {
   }
 
   /** FR-M23-7: 12-month trend for the charts. */
-  static async getTrends(factoryIds, { includeFinancial }) {
+  static async getTrends(factoryIds, { includeSales, includePurchase }) {
     const factoryFilter = factoryScope(factoryIds);
     const months = [];
     for (let i = 11; i >= 0; i -= 1) {
@@ -314,16 +320,17 @@ class DashboardService {
       });
       const point = { month: month.label, production: Number(production || 0) };
 
-      if (includeFinancial) {
-        const [sales, purchases] = await Promise.all([
-          SalesInvoice.sum('totalPaise', {
-            where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.between]: [month.start, month.end] } },
-          }),
-          PurchaseInvoice.sum('amountPaise', {
-            where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.between]: [month.start, month.end] } },
-          }),
-        ]);
+      // Each money series follows its own module's grant, like the widgets.
+      if (includeSales) {
+        const sales = await SalesInvoice.sum('totalPaise', {
+          where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.between]: [month.start, month.end] } },
+        });
         point.salesPaise = Number(sales || 0);
+      }
+      if (includePurchase) {
+        const purchases = await PurchaseInvoice.sum('amountPaise', {
+          where: { ...factoryFilter, status: 'POSTED', invoiceDate: { [Op.between]: [month.start, month.end] } },
+        });
         point.purchasePaise = Number(purchases || 0);
       }
       series.push(point);
@@ -334,7 +341,7 @@ class DashboardService {
   /**
    * The sales half of the dashboard: where orders are stuck, and who is buying.
    *
-   * Gated behind the same VIEW_RATES grant as the other financial widgets —
+   * Gated on VIEW_RATES plus SALES_READ or INVOICE_READ (see getDashboard) —
    * customer names beside invoiced value is commercial information, and BR-07
    * keeps that away from the shop floor.
    */
@@ -414,20 +421,26 @@ class DashboardService {
    * financial half is computed at all — not just whether it's displayed.
    */
   static async getDashboard({ factoryIds, canViewRates, can = () => true }) {
+    // VIEW_RATES says money may be shown; it does not say which books. Cash,
+    // bank, receivables and payables are the ledger; top customers are sales;
+    // vendor spend is purchasing. Each needs its module grant as well, or the
+    // landing page reads out what the modules themselves would refuse.
+    const showFinancial = canViewRates && (can('LEDGER_READ') || can('REPORT_FINANCE_READ'));
+    const showSales = canViewRates && (can('SALES_READ') || can('INVOICE_READ'));
+    const showPurchase = canViewRates && can('PURCHASE_READ');
+
     const [operational, trends] = await Promise.all([
       this.getOperationalWidgets(factoryIds, can),
-      this.getTrends(factoryIds, { includeFinancial: canViewRates }),
+      this.getTrends(factoryIds, { includeSales: showSales, includePurchase: showPurchase }),
     ]);
 
-    const payload = { operational, trends, scope: { factoryIds: factoryIds || null, financial: canViewRates } };
-    if (canViewRates) {
-      const [financial, sales] = await Promise.all([
-        this.getFinancialWidgets(factoryIds),
-        this.getSalesWidgets(factoryIds),
-      ]);
-      payload.financial = financial;
-      payload.sales = sales;
-    }
+    const payload = { operational, trends, scope: { factoryIds: factoryIds || null, financial: showFinancial } };
+    const [financial, sales] = await Promise.all([
+      showFinancial ? this.getFinancialWidgets(factoryIds, { includePurchase: showPurchase }) : null,
+      showSales ? this.getSalesWidgets(factoryIds) : null,
+    ]);
+    if (financial) payload.financial = financial;
+    if (sales) payload.sales = sales;
     return payload;
   }
 }

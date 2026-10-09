@@ -28,8 +28,7 @@
     "exec": "node src/server.js"
   },
   "dependencies": {
-    "bcrypt": "^5.1.1",
-    "bcryptjs": "^2.4.3",
+    "bcrypt": "^6.0.0",
     "cls-hooked": "^4.2.2",
     "compression": "^1.8.2",
     "cookie-parser": "^1.4.6",
@@ -38,12 +37,12 @@
     "exceljs": "^4.4.0",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
-    "firebase-admin": "^12.0.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "jszip": "3.10.1",
     "morgan": "^1.10.0",
-    "multer": "^1.4.5-lts.1",
-    "nodemailer": "^9.0.5",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.16",
     "pdfkit": "^0.19.1",
     "pg": "^8.11.3",
     "pg-hstore": "^2.3.4",
@@ -52,6 +51,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "bcryptjs": "^2.4.3",
     "eslint": "^9.17.0",
     "jest": "^29.7.0",
     "nodemon": "^3.1.7",

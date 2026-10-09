@@ -1,6 +1,8 @@
 const { z } = require('zod');
+const { isoDate, isIsoDate, MAX_SEARCH, MAX_PAISE } = require('../../utils/zodFields');
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are YYYY-MM-DD');
+const isoDateTime = z.string().datetime({ offset: true });
+
 const SOURCES = ['WALK_IN', 'PHONE', 'REFERRAL', 'SITE_VISIT', 'TENDER', 'ONLINE', 'EXHIBITION', 'OTHER'];
 
 const leadFields = {
@@ -11,7 +13,7 @@ const leadFields = {
   city: z.string().trim().max(80).optional().nullable(),
   state: z.string().trim().max(60).optional().nullable(),
   source: z.enum(SOURCES).optional(),
-  estimatedValuePaise: z.coerce.number().int().min(0).optional().nullable(),
+  estimatedValuePaise: z.coerce.number().int().min(0).finite().max(MAX_PAISE).optional().nullable(),
   expectedCloseDate: isoDate.optional().nullable(),
   ownerId: z.string().uuid().optional().nullable(),
   requirement: z.string().max(2000).optional().nullable(),
@@ -41,20 +43,25 @@ const activitySchema = z.object({
     type: z.enum(['NOTE', 'CALL', 'MEETING', 'EMAIL', 'SITE_VISIT', 'TASK']),
     subject: z.string().trim().min(1).max(200),
     detail: z.string().max(2000).optional(),
-    occurredAt: z.string().optional(),
+    // A day, or an instant that says its zone ('Z' or +05:30). Free text went
+    // straight into a TIMESTAMPTZ, where Postgres guessed or the insert was a 500.
+    occurredAt: z.string().refine(
+      (value) => isIsoDate(value) || isoDateTime.safeParse(value).success,
+      'occurredAt must be a YYYY-MM-DD date or an ISO date-time with offset'
+    ).optional(),
     dueDate: isoDate.optional(),
     assignedTo: z.string().uuid().optional(),
   }),
 });
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
   status: z.enum(['NEW', 'CONTACTED', 'QUALIFIED', 'QUOTED', 'WON', 'LOST']).optional(),
   openOnly: z.enum(['true', 'false']).optional(),
   ownerId: z.string().uuid().optional(),
   source: z.enum(SOURCES).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
 });
 
 const taskQuerySchema = z.object({

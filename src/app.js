@@ -8,6 +8,7 @@ const path = require('path');
 const { env } = require('./config/env');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { apiLimiter } = require('./middlewares/rateLimiter');
+const { financialDoubleSubmitGuard } = require('./middlewares/idempotency');
 const { logger } = require('./utils/logger');
 
 // Domain Routers
@@ -80,13 +81,23 @@ const allowedOrigins = env.CORS_ORIGIN
   ? env.CORS_ORIGIN.split(',').map((o) => o.trim())
   : ['http://localhost:3000'];
 
+// Development used to accept *any* origin, with credentials. NODE_ENV defaults
+// to development, so a deployment that forgot to set it let every website on
+// the internet make authenticated calls with a visitor's cookies. Development
+// now adds only the local machine to the configured list.
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || env.NODE_ENV === 'development') {
+      if (!origin || allowedOrigins.includes(origin) || (env.NODE_ENV === 'development' && LOCAL_ORIGIN.test(origin))) {
         return callback(null, true);
       }
-      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+      // Tagged so the error handler answers 403, not 500. The origin is not
+      // put in the message: it is caller-controlled text headed for the logs.
+      const refused = new Error('Origin not allowed by CORS');
+      refused.code = 'CORS_ORIGIN_REJECTED';
+      return callback(refused);
     },
     credentials: true,
   })
@@ -98,9 +109,43 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+/**
+ * NUL bytes are refused at the door. No field in this application has a use
+ * for U+0000, Postgres text cannot hold it, and Sequelize's literal escaping
+ * turns it into a backslash and a zero — a party named "a<NUL>b" was stored as
+ * "a", backslash, "0", "b" rather than refused. One check here covers every route, including
+ * the few without a schema.
+ */
+const hasNul = (value, depth = 0) => {
+  if (typeof value === 'string') return value.includes('\u0000');
+  if (!value || typeof value !== 'object' || depth > 20) return false;
+  return Object.entries(value).some(([k, v]) => k.includes('\u0000') || hasNul(v, depth + 1));
+};
+app.use((req, res, next) => {
+  if (hasNul(req.body) || hasNul(req.query)) {
+    return res.status(400).json({ success: false, message: 'The request contains a NUL character, which is not allowed.' });
+  }
+  next();
+});
+
+// A double click on "Save" used to post two receipts, vouchers or expenses.
+// Identical POSTs to a financial create from the same user within 30 seconds
+// are answered with the first response instead of creating a second document
+// (see middlewares/idempotency.js). Needs the parsed body and cookies, so it
+// sits after the parsers; it reads the user from the token itself.
+app.use(financialDoubleSubmitGuard);
+
 // Logging
+//
+// Apache "combined" minus two fields. The query string is dropped because
+// searches carry personal data (`?search=` matches Aadhaar numbers and phones)
+// and every request was being written to the log with it. The referrer is
+// dropped because a page URL can carry a token — the reset-password page's does.
+morgan.token('path-only', (req) => (req.originalUrl || req.url || '').split('?')[0]);
+const ACCESS_LOG_FORMAT =
+  ':remote-addr - :remote-user [:date[clf]] ":method :path-only HTTP/:http-version" :status :res[content-length] ":user-agent"';
 app.use(
-  morgan('combined', {
+  morgan(ACCESS_LOG_FORMAT, {
     stream: { write: (message) => logger.info(message.trim()) },
   })
 );
@@ -129,8 +174,26 @@ app.get('/health/live', (req, res) => {
  * What stays here is what is genuinely public or near-harmless: the brand marks
  * the login page needs before anyone has a session, and avatars.
  */
-app.use('/uploads/assets', express.static(path.join(__dirname, '../uploads/assets')));
-app.use('/uploads/avatars', express.static(path.join(__dirname, '../uploads/avatars')));
+//
+// Both directories are served from the API's own origin, so anything a browser
+// would execute must never come out of them: only raster images are served,
+// with nosniff and a CSP that sandboxes the response and forbids script even if
+// a file were opened directly. An avatar uploaded before the upload filter was
+// tightened with an .html/.svg/.js name is therefore a 404, not a page.
+const SERVABLE_IMAGE = /\.(png|jpe?g|webp)$/i;
+const serveImagesOnly = (dir) => [
+  (req, res, next) => (SERVABLE_IMAGE.test(req.path) ? next() : res.status(404).end()),
+  express.static(dir, {
+    dotfiles: 'deny',
+    index: false,
+    setHeaders: (res) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; sandbox");
+    },
+  }),
+];
+app.use('/uploads/assets', ...serveImagesOnly(path.join(__dirname, '../uploads/assets')));
+app.use('/uploads/avatars', ...serveImagesOnly(path.join(__dirname, '../uploads/avatars')));
 
 /**
  * Readiness: can this instance actually serve traffic?

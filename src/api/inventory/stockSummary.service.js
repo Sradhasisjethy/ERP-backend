@@ -1,4 +1,5 @@
 const { Op, fn, col, literal } = require('sequelize');
+const { containsPattern } = require('../../utils/pagination');
 const { StockLot } = require('./stockLot.model');
 const { StockReservation } = require('./stockReservation.model');
 const { StockTransferLine } = require('../transfer/stockTransferLine.model');
@@ -127,8 +128,8 @@ class StockSummaryService {
     if (category === 'ACCESSORY') productWhere.isAccessory = true;
     if (search) {
       productWhere[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { code: { [Op.iLike]: `%${search}%` } },
+        { name: { [Op.iLike]: containsPattern(search) } },
+        { code: { [Op.iLike]: containsPattern(search) } },
       ];
     }
 

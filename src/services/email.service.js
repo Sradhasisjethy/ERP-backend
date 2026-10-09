@@ -2,6 +2,25 @@ const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 
+// Names and the company name come from user-editable records; they are
+// interpolated into HTML, so they are escaped first.
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+// A reset or setup link is a credential. It is printed only when a developer
+// asks for it (PRINT_EMAIL_LINKS=true) and never in production. Keying it off
+// "not production" alone printed working takeover links on any deployment that
+// forgot to set NODE_ENV, which defaults to development.
+const mayPrintLinks = () => process.env.PRINT_EMAIL_LINKS === 'true' && process.env.NODE_ENV !== 'production';
+
+// Recipients are logged so delivery can be traced, but not whole.
+const maskEmail = (value) => String(value || '').replace(/^(.)[^@]*(@.+)$/, '$1***$2');
+
 class EmailService {
   constructor() {
     this.transporter = null;
@@ -14,6 +33,14 @@ class EmailService {
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
 
+    // The test suite creates and resets accounts by the dozen. With the real
+    // SMTP key in .env it used to send every invite through the live relay —
+    // real mail to invented addresses, on the company's sender reputation and
+    // quota — and a send finishing after its test ended failed the run.
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
     if (host && user && pass) {
       this.transporter = nodemailer.createTransport({
         host,
@@ -23,7 +50,7 @@ class EmailService {
       });
       console.log(`[EmailService] SMTP Transporter configured for host: ${host}`);
     } else {
-      console.log('[EmailService] SMTP credentials not fully configured in .env yet. Emails will be logged to console in Dev Mode.');
+      console.log('[EmailService] SMTP credentials not fully configured in .env yet. Emails are not sent; set PRINT_EMAIL_LINKS=true to print links locally.');
     }
   }
 
@@ -43,7 +70,11 @@ class EmailService {
 
   async sendPasswordResetEmail({ email, name, resetUrl }) {
     const fromEmail = process.env.FROM_EMAIL || 'noreply@infideep.com';
-    const companyName = process.env.COMPANY_NAME || 'INFIDEEP ERP';
+    const rawCompanyName = process.env.COMPANY_NAME || 'INFIDEEP ERP';
+    const companyName = escapeHtml(rawCompanyName);
+    const recipient = email;
+    email = escapeHtml(email);
+    name = escapeHtml(name);
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -140,32 +171,36 @@ class EmailService {
     if (this.transporter) {
       try {
         const info = await this.transporter.sendMail({
-          from: `"${companyName}" <${fromEmail}>`,
-          to: email,
-          subject: `🔑 Reset Your Password - ${companyName}`,
+          from: `"${rawCompanyName}" <${fromEmail}>`,
+          to: recipient,
+          subject: `🔑 Reset Your Password - ${rawCompanyName}`,
           html: htmlContent,
           attachments: this.getLogoAttachment(),
         });
-        console.log(`[EmailService] Password reset email sent to ${email}. MessageId: ${info.messageId}`);
+        console.log(`[EmailService] Password reset email sent to ${maskEmail(recipient)}. MessageId: ${info.messageId}`);
         return { success: true, messageId: info.messageId };
       } catch (err) {
-        console.error(`[EmailService] Failed to send email via SMTP:`, err.message);
-        console.log(`[EmailService DEV FALLBACK] Reset Link for ${email}: ${resetUrl}`);
-        return { success: false, fallbackUrl: resetUrl, error: err.message };
+        console.error(`[EmailService] Failed to send password reset email via SMTP:`, err.message);
+        if (mayPrintLinks()) console.log(`[EmailService DEV FALLBACK] Reset Link for ${maskEmail(recipient)}: ${resetUrl}`);
+        return { success: false };
       }
     } else {
       console.log(`\n======================================================`);
       console.log(`[EmailService DEV MODE - NO SMTP ENV DEFINED YET]`);
-      console.log(`To: ${email}`);
-      console.log(`Reset Password Link: ${resetUrl}`);
+      console.log(`To: ${maskEmail(recipient)}`);
+      if (mayPrintLinks()) console.log(`Reset Password Link: ${resetUrl}`);
       console.log(`======================================================\n`);
-      return { success: true, isDevFallback: true, resetUrl };
+      return { success: false, isDevFallback: true };
     }
   }
 
   async sendWelcomeInviteEmail({ email, name, setupUrl }) {
     const fromEmail = process.env.FROM_EMAIL || 'noreply@infideep.com';
-    const companyName = process.env.COMPANY_NAME || 'INFIDEEP ERP';
+    const rawCompanyName = process.env.COMPANY_NAME || 'INFIDEEP ERP';
+    const companyName = escapeHtml(rawCompanyName);
+    const recipient = email;
+    email = escapeHtml(email);
+    name = escapeHtml(name);
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -261,26 +296,26 @@ class EmailService {
     if (this.transporter) {
       try {
         const info = await this.transporter.sendMail({
-          from: `"${companyName}" <${fromEmail}>`,
-          to: email,
-          subject: `🎉 Welcome to ${companyName} - Set Up Your Account Password`,
+          from: `"${rawCompanyName}" <${fromEmail}>`,
+          to: recipient,
+          subject: `🎉 Welcome to ${rawCompanyName} - Set Up Your Account Password`,
           html: htmlContent,
           attachments: this.getLogoAttachment(),
         });
-        console.log(`[EmailService] Welcome invite email sent to ${email}. MessageId: ${info.messageId}`);
+        console.log(`[EmailService] Welcome invite email sent to ${maskEmail(recipient)}. MessageId: ${info.messageId}`);
         return { success: true, messageId: info.messageId };
       } catch (err) {
         console.error(`[EmailService] Failed to send welcome invite email via SMTP:`, err.message);
-        console.log(`[EmailService DEV FALLBACK] Account Setup Link for ${email}: ${setupUrl}`);
-        return { success: false, fallbackUrl: setupUrl, error: err.message };
+        if (mayPrintLinks()) console.log(`[EmailService DEV FALLBACK] Account Setup Link for ${maskEmail(recipient)}: ${setupUrl}`);
+        return { success: false };
       }
     } else {
       console.log(`\n======================================================`);
       console.log(`[EmailService DEV MODE - NO SMTP ENV DEFINED YET]`);
-      console.log(`To: ${email}`);
-      console.log(`Welcome Account Setup Link: ${setupUrl}`);
+      console.log(`To: ${maskEmail(recipient)}`);
+      if (mayPrintLinks()) console.log(`Welcome Account Setup Link: ${setupUrl}`);
       console.log(`======================================================\n`);
-      return { success: true, isDevFallback: true, setupUrl };
+      return { success: false, isDevFallback: true };
     }
   }
 }

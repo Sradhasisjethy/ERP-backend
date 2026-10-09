@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { searchWhere } = require('../../utils/pagination');
+const { searchWhere, containsPattern } = require('../../utils/pagination');
 const { sequelize } = require('../../config/database');
 const { PurchaseOrder } = require('./purchaseOrder.model');
 const { PurchaseOrderLine } = require('./purchaseOrderLine.model');
@@ -42,8 +42,8 @@ class PurchasingService {
     // actually do; `searchWhere` on poNumber alone never found anything by vendor.
     if (search) {
       where[Op.or] = [
-        { poNumber: { [Op.iLike]: `%${search}%` } },
-        { '$vendor.name$': { [Op.iLike]: `%${search}%` } },
+        { poNumber: { [Op.iLike]: containsPattern(search) } },
+        { '$vendor.name$': { [Op.iLike]: containsPattern(search) } },
       ];
     }
 

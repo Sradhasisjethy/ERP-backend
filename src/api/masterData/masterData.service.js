@@ -591,8 +591,9 @@ class MasterDataService {
     return { buffer, fileName: `${config.fileBase}_Import_Errors_${todayLocal()}.xlsx` };
   }
 
-  static async listRuns({ module, page = 1, limit = 10 }) {
-    const where = module ? { module } : {};
+  static async listRuns({ module, page = 1, limit = 10, allowedModules }) {
+    const visible = allowedModules || [];
+    const where = { module: module ? (visible.includes(module) ? module : null) : { [Op.in]: visible } };
     const { rows, count } = await MasterImportRun.findAndCountAll({
       where,
       attributes: { exclude: ['payload'] },

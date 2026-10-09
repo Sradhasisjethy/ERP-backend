@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../../utils/pagination');
 const { Account } = require('../../ledger/account.model');
 const { AccountsService } = require('../../ledger/accounts.service');
 const { ACCOUNT_GROUPS } = require('../../ledger/accountGroups');
@@ -69,7 +70,7 @@ const accounts = {
       where: {
         ...(query.includeInactive === 'true' || query.includeInactive === true ? {} : { isActive: true }),
         ...(query.search
-          ? { [Op.or]: ['code', 'name'].map((column) => ({ [column]: { [Op.iLike]: `%${query.search}%` } })) }
+          ? { [Op.or]: ['code', 'name'].map((column) => ({ [column]: { [Op.iLike]: containsPattern(query.search) } })) }
           : {}),
       },
       order: [['code', 'ASC']],

@@ -24,9 +24,35 @@ const scopeListToFactories = async (req, where = {}, requestedFactoryId) => {
   return applyFactoryFilter(where, allowed, requestedFactoryId);
 };
 
-/** Throws ForbiddenError unless the caller may act on `factoryId`. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Throws ForbiddenError unless the caller may act on `factoryId`, and
+ * NotFoundError unless that factory exists in the caller's tenant.
+ *
+ * The existence check is for every caller, but it is the bypass roles it
+ * matters for: their allowed list is `null`, so before this a tenant owner (or
+ * a platform admin acting in one tenant) could name *another* tenant's factory
+ * id and have it accepted — the document then carried a foreign plant. 404
+ * rather than 403 for the reason assertCanSeeRecord gives.
+ *
+ * An absent id keeps its old meaning (a bypass caller passes, anyone else is
+ * refused): whether the field is required is the validator's call, not this.
+ */
 const assertCanUseFactory = async (req, factoryId) => {
   assertFactoryAccess(await getAllowedFactoryIds(req), factoryId);
+  if (!factoryId) return;
+
+  // A malformed id cannot exist, and Postgres would 500 on the cast.
+  if (!UUID_RE.test(String(factoryId))) throw new NotFoundError('Factory not found');
+  const { Factory } = require('../api/factory/factory.model');
+  const factory = await Factory.findOne({
+    // The model hook adds the CLS tenant as well; naming it here keeps the
+    // check honest on a path that runs without tenantScope.
+    where: { id: factoryId, ...(req.user.tenantId ? { tenantId: req.user.tenantId } : {}) },
+    attributes: ['id'],
+  });
+  if (!factory) throw new NotFoundError('Factory not found');
 };
 
 /**

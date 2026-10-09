@@ -26,11 +26,11 @@ const formatCell = (value, col) => {
 
 const csvEscape = (value) => {
   const s = String(value ?? '');
-  // A leading =, +, - or @ makes Excel treat the cell as a formula, which is a
+  // A leading =, +, -, @, tab or CR makes Excel treat the cell as a formula, which is a
   // real injection vector when the data came from user input. Prefixing with a
   // quote neutralises it without changing what the reader sees.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
-  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 
 /**

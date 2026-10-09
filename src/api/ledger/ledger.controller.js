@@ -85,8 +85,12 @@ const getTrialBalance = asyncHandler(async (req, res) => {
 
 const getPartyLedger = asyncHandler(async (req, res) => {
   const { page, limit } = req.query;
-  const ledger = await LedgerService.getPartyLedger(req.params.partyId, { page: Number(page), limit: Number(limit) });
-  const outstanding = await LedgerService.getPartyOutstanding(req.params.partyId);
+  // BR-29: a plant-restricted user sees only the postings made at their plants
+  // — the statement and the outstanding figure are scoped the same way so they
+  // still agree with each other.
+  const allowed = await getAllowedFactoryIds(req);
+  const ledger = await LedgerService.getPartyLedger(req.params.partyId, { page: Number(page), limit: Number(limit), allowedFactoryIds: allowed });
+  const outstanding = await LedgerService.getPartyOutstanding(req.params.partyId, allowed);
 
   // Composite shape (paginated rows plus top-level summary figures) doesn't
   // fit maskRateFields' generic {rows} or flat-object cases, so every money

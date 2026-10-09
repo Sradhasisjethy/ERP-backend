@@ -25,13 +25,24 @@ const listQuery = (extra = {}) =>
 const toOffset = (page, limit) => ({ limit: Number(limit), offset: (Number(page) - 1) * Number(limit) });
 
 /**
+ * Escapes LIKE/ILIKE metacharacters so a user's term matches literally — a
+ * search for "_" or "50%" must not become a wildcard. Backslash is Postgres's
+ * default LIKE escape, so no ESCAPE clause is needed (same as
+ * reports/lib/sqlWhere.js#search).
+ */
+const escapeLike = (value) => String(value ?? '').replace(/[\\%_]/g, '\\$&');
+
+/** `%term%` with the term escaped — the pattern for a "contains" search. */
+const containsPattern = (value) => `%${escapeLike(value)}%`;
+
+/**
  * Builds a case-insensitive OR-match across the given columns. Returns
  * undefined when there's nothing to search, so it can be spread into a
  * `where` clause unconditionally.
  */
 const searchWhere = (search, columns = []) => {
   if (!search || !columns.length) return undefined;
-  return { [Op.or]: columns.map((col) => ({ [col]: { [Op.iLike]: `%${search}%` } })) };
+  return { [Op.or]: columns.map((col) => ({ [col]: { [Op.iLike]: containsPattern(search) } })) };
 };
 
 /**
@@ -53,4 +64,4 @@ const paginated = ({ rows, count }, page, limit) => ({
   totalPages: Math.max(1, Math.ceil(count / Number(limit))),
 });
 
-module.exports = { listQuery, toOffset, searchWhere, toOrder, paginated, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE };
+module.exports = { listQuery, toOffset, searchWhere, escapeLike, containsPattern, toOrder, paginated, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE };

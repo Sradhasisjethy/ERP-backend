@@ -8,6 +8,7 @@ const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { AccountsService } = require('../ledger/accounts.service');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
+const { assertExists } = require('../../core/masterGuards');
 
 const getCurrentFinancialYearId = async (transaction) => {
   const fy = await FinancialYear.findOne({ where: { isCurrent: true }, transaction });
@@ -36,6 +37,8 @@ class ExpensesService {
     if (!amountPaise || amountPaise <= 0) throw new ValidationError('amountPaise must be positive');
 
     return sequelize.transaction(async (transaction) => {
+      // The FK alone accepts another tenant's party, which the list then includes.
+      await assertExists(Party, paidToPartyId, 'Party', { transaction });
       const paidFrom = await AccountsService.resolveMoneyAccount({ accountId, mode }, transaction);
 
       const financialYearId = await getCurrentFinancialYearId(transaction);

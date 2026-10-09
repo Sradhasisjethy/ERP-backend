@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { User } = require('../users/user.model');
+const { Tenant } = require('../organization/tenant.model');
 const { AdGroup } = require('../roles/role.model');
 const { AdGroupMember } = require('../roles/adGroupMember.model');
 const { env } = require('../../config/env');
@@ -17,6 +18,15 @@ const emailService = require('../../services/email.service');
 const { SystemRoles, EmployeeStatus } = require('../../utils/constants');
 const { permissionsForSystemRole } = require('../../utils/systemRolePermissions');
 const { RefreshToken } = require('./refreshToken.model');
+const { bumpUser } = require('../../utils/permissionVersion');
+const { getTenantId } = require('../../core/tenantContext');
+const { logger } = require('../../utils/logger');
+
+const FORGOT_PASSWORD_MESSAGE = 'If an account exists with that email, a password reset link has been sent.';
+
+// A valid bcrypt hash of a random string, compared against when no account
+// matches so that a miss costs the same time as a wrong password.
+const TIMING_DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
 
 /**
  * Seven days, in one place. The cookie's lifetime is derived from these rather
@@ -51,9 +61,18 @@ class AuthService {
     // An employee now gets exactly what their groups give them.
 
     if (userId) {
+      // Login and refresh run outside a request's tenant context, where the
+      // model hooks filter nothing — so memberships were read from every
+      // tenant. A role in tenant B naming a tenant-A user's id then granted
+      // that user its permissions inside tenant A. Memberships and the roles
+      // they point at must both belong to the user's own tenant.
+      const tenantId =
+        getTenantId() || (await User.unscoped().findByPk(userId, { attributes: ['tenantId'] }))?.tenantId;
+      if (!tenantId) return expandPermissions(Array.from(permissions));
+
       const memberships = await AdGroupMember.findAll({
-        where: { employeeId: userId },
-        include: [{ model: AdGroup, attributes: ['permissions', 'status'] }],
+        where: { employeeId: userId, tenantId },
+        include: [{ model: AdGroup, attributes: ['permissions', 'status'], where: { tenantId }, required: true }],
       });
 
       for (const membership of memberships) {
@@ -122,10 +141,27 @@ class AuthService {
   /** Ends sessions. `jti` for one device, or every token the user holds. */
   static async revokeRefreshTokens({ jti, userId, reason }) {
     const where = jti ? { jti } : { userId };
-    await RefreshToken.update(
+    const [count] = await RefreshToken.update(
       { revokedAt: new Date(), revokedReason: reason || 'REVOKED' },
       { where: { ...where, revokedAt: null } }
     );
+    // How many were still live — rotation relies on this to win a race.
+    return count;
+  }
+
+  /**
+   * A company that has been suspended or switched off signs nobody in.
+   *
+   * The tenant's status column existed but nothing read it, so suspending a
+   * customer changed nothing for its users. Only the two explicit "off" states
+   * are refused: a row with any other value keeps working, so this can never
+   * lock out a live company over a status nobody set.
+   */
+  static async assertTenantUsable(tenantId) {
+    const tenant = await Tenant.findByPk(tenantId, { attributes: ['id', 'status'] });
+    if (!tenant || ['inactive', 'suspended'].includes(tenant.status)) {
+      throw new UnauthorizedError('Invalid credentials');
+    }
   }
 
   /**
@@ -156,6 +192,9 @@ class AuthService {
   async login(email, password, context = {}) {
     const user = await User.scope('withPassword').findOne({ where: { email } });
     if (!user) {
+      // Spend the same bcrypt time an existing account would, so the response
+      // time does not say which emails are registered.
+      await bcrypt.compare(password, TIMING_DUMMY_HASH);
       throw new UnauthorizedError('Invalid credentials');
     }
 
@@ -165,12 +204,16 @@ class AuthService {
     }
 
     AuthService.assertUsable(user);
+    await AuthService.assertTenantUsable(user.tenantId);
 
     const accessToken = await this.generateAccessToken(user);
     const refreshToken = await this.issueRefreshToken(user, { context });
 
     const userJson = user.toJSON();
+    // Loaded through `withPassword`, so every credential column is present.
     delete userJson.passwordHash;
+    delete userJson.resetPasswordToken;
+    delete userJson.resetPasswordExpires;
     userJson.permissions = await this.getPermissionsForUser(user.id, user.role);
 
     return {
@@ -204,6 +247,7 @@ class AuthService {
     // version on each request, so a disabled or demoted user is stopped there;
     // this remains the point at which a *new* token picks up the change.
     AuthService.assertUsable(user);
+    await AuthService.assertTenantUsable(user.tenantId);
 
     // The signature only proves the token was issued by us; this proves it has
     // not since been ended. Without it, logout, a password reset and disabling
@@ -230,6 +274,8 @@ class AuthService {
       // user's other devices, which is its own kind of outage.
       if (stored.revokedReason === 'ROTATED') {
         await AuthService.revokeRefreshTokens({ userId: stored.userId, reason: 'REUSE_DETECTED' });
+        // A copy is loose, so its access tokens die too — not in an hour.
+        await bumpUser(stored.userId);
       }
       throw new UnauthorizedError('Invalid refresh token');
     }
@@ -239,23 +285,66 @@ class AuthService {
     }
 
     // Rotate: the presented token is spent, and a fresh one takes its place.
-    await AuthService.revokeRefreshTokens({ jti: decoded.jti, reason: 'ROTATED' });
+    //
+    // The revoke is the claim. Two requests presenting the same token used to
+    // both pass the check above and both mint new sessions — a stolen token
+    // racing the real one got a parallel session and reuse detection never
+    // fired. Only one UPDATE can flip revokedAt from null; the loser is reuse.
+    const claimed = await AuthService.revokeRefreshTokens({ jti: decoded.jti, reason: 'ROTATED' });
+    if (claimed === 0) {
+      await AuthService.revokeRefreshTokens({ userId: stored.userId, reason: 'REUSE_DETECTED' });
+      await bumpUser(stored.userId);
+      throw new UnauthorizedError('Invalid refresh token');
+    }
     const accessToken = await this.generateAccessToken(user);
     const newRefreshToken = await this.issueRefreshToken(user, { context, replaces: decoded.jti });
 
     return { accessToken, refreshToken: newRefreshToken };
   }
 
-  /** Ends one session — the device that presented this token, and no other. */
+  /**
+   * Ends this device's session. Its refresh token is revoked, and the user's
+   * access tokens are retired so the one this device held stops working now
+   * rather than in up to an hour; other devices refresh transparently.
+   */
   async logout(refreshToken) {
     if (!refreshToken) return;
     try {
       const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
-      if (decoded.jti) await AuthService.revokeRefreshTokens({ jti: decoded.jti, reason: 'LOGOUT' });
+      if (decoded.jti) {
+        const revoked = await AuthService.revokeRefreshTokens({ jti: decoded.jti, reason: 'LOGOUT' });
+        if (revoked) await bumpUser(decoded.userId);
+      }
     } catch {
       // An expired or malformed token needs no revoking, and logout must
       // succeed regardless — a user signing out should never see an error.
     }
+  }
+
+  /** Ends every session the user has, on every device. */
+  async logoutAll(userId) {
+    await AuthService.revokeRefreshTokens({ userId, reason: 'LOGOUT_ALL' });
+    await bumpUser(userId);
+  }
+
+  /**
+   * Changes a signed-in user's password. The current password is required —
+   * a session left open on a shared machine must not be enough to take the
+   * account — and every session ends afterwards, this one included.
+   */
+  async changePassword(userId, currentPassword, newPassword) {
+    const user = await User.scope('withPassword').findByPk(userId);
+    // 400, not 401: the session is fine, the form input is wrong — a 401 makes
+    // the client try to refresh the session and retry.
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      throw new BadRequestError('Current password is incorrect');
+    }
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    await user.save();
+    await this.logoutAll(user.id);
+    return { message: 'Password changed. Please sign in again.' };
   }
 
   async getMe(userId) {
@@ -286,38 +375,51 @@ class AuthService {
     return userJson;
   }
 
+  /**
+   * Always answers with the same message, whatever happened.
+   *
+   * This used to return the email service's result to the caller, and that
+   * result carries the reset link itself whenever SMTP is unconfigured or the
+   * send fails — an anonymous POST with someone's email got back a working link
+   * to their account. It also answered differently for unknown emails, known
+   * ones, and owner/admin accounts (a 400 naming the role), which told a
+   * stranger who works here and who holds the keys. The link now goes only to
+   * the mailbox; failures are logged against the user id, never the token.
+   */
   async forgotPassword(email) {
     const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return { message: 'If an account exists with that email, a password reset link has been sent.' };
+
+    // Owner, platform and system accounts are not reset through a public link —
+    // but saying so would confirm the account and its rank, so they get the
+    // same answer as everyone else.
+    const resettable =
+      user && !(user.isSystem || user.role === SystemRoles.PLATFORM_ADMIN || user.role === SystemRoles.TENANT_OWNER);
+
+    if (resettable) {
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+      user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
+      await user.save();
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+      // Not awaited: waiting on SMTP only for real accounts made the response
+      // time say which emails are registered.
+      Promise.resolve()
+        .then(() =>
+          emailService.sendPasswordResetEmail({
+            email: user.email,
+            name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User',
+            resetUrl,
+          })
+        )
+        .catch((error) => {
+          logger.error({ message: 'Password reset email failed', userId: user.id, error: error.message });
+        });
     }
 
-    // Security Rule: Protect Platform Owner / System Admins / Tenant Owners from public forgot password reset!
-    if (user.isSystem || user.role === SystemRoles.PLATFORM_ADMIN || user.role === SystemRoles.TENANT_OWNER) {
-      throw new BadRequestError('Password reset via public link is disabled for Platform Owner / System Administrator accounts. Please contact system support.');
-    }
-
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    const resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
-
-    user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpires = resetPasswordExpires;
-    await user.save();
-
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
-
-    const emailResult = await emailService.sendPasswordResetEmail({
-      email: user.email,
-      name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User',
-      resetUrl,
-    });
-
-    return {
-      message: 'Password reset link has been sent to your email.',
-      ...emailResult,
-    };
+    return { message: FORGOT_PASSWORD_MESSAGE };
   }
 
   async resetPassword(token, newPassword) {
@@ -347,6 +449,11 @@ class AuthService {
     user.resetPasswordToken = null;
     user.resetPasswordExpires = null;
     await user.save();
+
+    // Refresh tokens are revoked below, but an access token already issued
+    // would otherwise keep working until it expired (up to an hour). Bumping
+    // the version makes `authenticate` refuse it on the next request.
+    await bumpUser(user.id);
 
     // Everything the old password could reach is now closed. Someone resetting
     // a password has usually lost control of the account, and leaving working

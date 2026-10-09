@@ -33,17 +33,28 @@ const { env } = require('../../config/env');
  */
 
 const DENOMINATIONS = [2000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
+const DENOMINATION_KEYS = new Set(DENOMINATIONS.map(String));
+// A million of one note is far beyond any real drawer (₹20 crore in ₹2000s)
+// yet keeps the total well inside Number.MAX_SAFE_INTEGER paise.
+const MAX_DENOMINATION_COUNT = 1000000;
+
+// Error text quotes the client's key/count, so keep it short.
+const clip = (v) => String(v).slice(0, 20);
 
 /** Rupee value of a { "500": 10, ... } count, in paise. */
 const countDenominations = (denominations) => {
   if (!denominations) return 0;
   let paise = 0;
   for (const [value, count] of Object.entries(denominations)) {
-    const note = Number(value);
+    // Exact string match: Number("1e3") or "0500" would otherwise pass as a note.
+    if (!DENOMINATION_KEYS.has(value)) {
+      throw new ValidationError(`"${clip(value)}" is not a note or coin value (use ${DENOMINATIONS.join(', ')})`);
+    }
     const many = Number(count);
-    if (!Number.isFinite(note) || note <= 0) throw new ValidationError(`"${value}" is not a note or coin value`);
-    if (!Number.isInteger(many) || many < 0) throw new ValidationError(`The count for ₹${value} must be a whole number, not "${count}"`);
-    paise += Math.round(note * 100) * many;
+    if (!Number.isInteger(many) || many < 0 || many > MAX_DENOMINATION_COUNT) {
+      throw new ValidationError(`The count for ₹${value} must be a whole number from 0 to ${MAX_DENOMINATION_COUNT}, not "${clip(count)}"`);
+    }
+    paise += Number(value) * 100 * many;
   }
   return paise;
 };
@@ -239,4 +250,4 @@ class CashRegisterService {
   }
 }
 
-module.exports = { CashRegisterService, countDenominations, DENOMINATIONS };
+module.exports = { CashRegisterService, countDenominations, DENOMINATIONS, MAX_DENOMINATION_COUNT };

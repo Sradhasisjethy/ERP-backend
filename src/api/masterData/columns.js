@@ -87,7 +87,9 @@ const coerce = (column, raw, lookups = {}) => {
     }
 
     case 'email': {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return { error: `${column.header} is not a valid email address` };
+      // Length first: an address is at most 254 characters, and the pattern
+      // backtracks quadratically on a long cell with no '@'.
+      if (text.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return { error: `${column.header} is not a valid email address` };
       return { value: text.toLowerCase() };
     }
 

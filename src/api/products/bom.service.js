@@ -5,7 +5,7 @@ const { MixDesignLine } = require('./mixDesignLine.model');
 const { Product } = require('./product.model');
 const { Uom } = require('./uom.model');
 const { UomService } = require('./uom.service');
-const { toOrder } = require('../../utils/pagination');
+const { toOrder, containsPattern } = require('../../utils/pagination');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 
 const SORTABLE = ['name', 'version', 'status', 'effectiveFrom', 'createdAt'];
@@ -45,7 +45,7 @@ class BomService {
     const where = {};
     if (productId) where.productId = productId;
     if (status) where.status = status;
-    if (search) where.name = { [Op.iLike]: `%${search}%` };
+    if (search) where.name = { [Op.iLike]: containsPattern(search) };
 
     return MixDesign.findAndCountAll({
       where,

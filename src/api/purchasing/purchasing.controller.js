@@ -135,6 +135,9 @@ const convertIndent = asyncHandler(async (req, res) => {
 
 // --- FR-M11-6: three-way match ---
 const threeWayMatch = asyncHandler(async (req, res) => {
+  // The match is a view of one purchase invoice, so it is scoped to that
+  // invoice's plant exactly as getPurchaseInvoice is.
+  await assertCanSeeRecord(req, await PurchasingService.getPurchaseInvoice(req.params.id), 'Purchase invoice not found');
   const data = await IndentService.threeWayMatch(req.params.id);
   // BR-27: the match report is money end to end.
   sendSuccess(res, maskRateFields(data, req), 'Three-way match retrieved successfully');

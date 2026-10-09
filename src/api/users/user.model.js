@@ -159,8 +159,11 @@ User.initAudited(
     // Never let an audit row become a second place a credential is stored. The
     // point of auditing this model is the `role` column, not the secrets.
     auditExclude: ['passwordHash', 'resetPasswordToken', 'resetPasswordExpires'],
+    // The reset token is stored hashed, but it is still credential state: it
+    // was returned on every user read and list until it was excluded here.
+    // `withPassword` is the scope for the flows that need it.
     defaultScope: {
-      attributes: { exclude: ['passwordHash'] },
+      attributes: { exclude: ['passwordHash', 'resetPasswordToken', 'resetPasswordExpires'] },
     },
     scopes: {
       withPassword: {

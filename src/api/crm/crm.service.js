@@ -8,6 +8,7 @@ const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { getUserId } = require('../../core/tenantContext');
+const { assertExists } = require('../../core/masterGuards');
 const { env } = require('../../config/env');
 const { isoDateInZone } = require('../../utils/dateDisplay');
 
@@ -93,6 +94,8 @@ class CrmService {
 
   static async create(input) {
     return sequelize.transaction(async (transaction) => {
+      // The FK alone accepts another tenant's user, whose name the lead then shows.
+      await assertExists(User, input.ownerId, 'User', { transaction });
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('LEAD', { financialYearId, prefix: 'LD', transaction });
 
@@ -125,6 +128,7 @@ class CrmService {
       // Details of a closed lead stay as they were when it closed.
       throw new ValidationError(`This lead is ${lead.status.toLowerCase()} — reopen it before editing`);
     }
+    await assertExists(User, input.ownerId, 'User');
     const changes = {};
     for (const field of ['name', 'contactName', 'phone', 'email', 'city', 'state', 'source', 'estimatedValuePaise', 'expectedCloseDate', 'ownerId', 'requirement']) {
       if (input[field] !== undefined) changes[field] = input[field] === '' ? null : input[field];
@@ -201,6 +205,7 @@ class CrmService {
     await this.get(leadId);
     // A task nobody is due to do never surfaces in the follow-up list.
     if (input.type === 'TASK' && !input.dueDate) throw new ValidationError('A task needs a date it is due by');
+    await assertExists(User, input.assignedTo, 'User');
     const activity = await LeadActivity.create({
       leadId,
       type: input.type,

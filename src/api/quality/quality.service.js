@@ -3,6 +3,9 @@ const { sequelize } = require('../../config/database');
 const { searchWhere, toOrder } = require('../../utils/pagination');
 const { QualityInspection } = require('./qualityInspection.model');
 const { Product } = require('../products/product.model');
+const { nonMoneyAttributes } = require('../../utils/fieldMasking');
+// Product includes carry identity only: nothing here values stock, and the
+// cost/price columns rode along to every role that could read the list.
 const { StockLot } = require('../inventory/stockLot.model');
 const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
@@ -54,7 +57,7 @@ class QualityService {
       limit,
       offset,
       include: [
-        { model: Product, as: 'product' },
+        { model: Product, as: 'product', attributes: nonMoneyAttributes(Product) },
         { model: StockLot, as: 'lot' },
       ],
       order: toOrder(sortBy, sortDir, SORTABLE, [['inspectionDate', 'DESC']]),
@@ -64,7 +67,7 @@ class QualityService {
   static async getInspection(id) {
     const inspection = await QualityInspection.findByPk(id, {
       include: [
-        { model: Product, as: 'product' },
+        { model: Product, as: 'product', attributes: nonMoneyAttributes(Product) },
         { model: StockLot, as: 'lot' },
       ],
     });
@@ -204,7 +207,7 @@ class QualityService {
       limit,
       offset,
       include: [
-        { model: Product, as: 'product' },
+        { model: Product, as: 'product', attributes: nonMoneyAttributes(Product) },
         { model: QualityInspection, as: 'inspections' },
       ],
       order: [['originDate', 'ASC']],

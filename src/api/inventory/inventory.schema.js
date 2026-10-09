@@ -1,10 +1,11 @@
 const { z } = require('zod');
+const { isoDate, MAX_STRING, MAX_TEXT, MAX_SEARCH, MAX_QTY } = require('../../utils/zodFields');
 
 const listLotsQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
-  search: z.string().trim().min(1).optional(),
-  sortBy: z.string().trim().min(1).optional(),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   factoryId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
@@ -12,24 +13,24 @@ const listLotsQuerySchema = z.object({
 });
 
 const listReservationsQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
-  search: z.string().trim().min(1).optional(),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
   factoryId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
   status: z.enum(['ACTIVE', 'RELEASED', 'CONSUMED']).optional(),
 });
 
 const listLedgerQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
-  search: z.string().trim().min(1).optional(),
-  sortBy: z.string().trim().min(1).optional(),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   factoryId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
   lotId: z.string().uuid().optional(),
-  movementType: z.string().optional(),
+  movementType: z.string().max(MAX_STRING).optional(),
 });
 
 const balanceQuerySchema = z.object({
@@ -38,20 +39,20 @@ const balanceQuerySchema = z.object({
 });
 
 const listByMaterialQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(20),
   factoryId: z.string().uuid().optional(),
   category: z.enum(['RAW_MATERIAL', 'FINISHED_GOOD', 'ACCESSORY']).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
   // Off by default: a material that has run out is exactly what someone
   // reordering is looking for, so zero rows are an answer, not noise.
   hideZero: z.coerce.boolean().default(false),
 });
 
 const listAdjustmentsQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
-  sortBy: z.string().trim().min(1).optional(),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   factoryId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
@@ -70,14 +71,14 @@ const createAdjustmentSchema = z.object({
     factoryId: z.string().uuid(),
     productId: z.string().uuid(),
     lotId: z.string().uuid(),
-    countedQty: z.coerce.number().min(0),
-    reason: z.string().trim().min(3, 'An unexplained stock correction is not auditable'),
-    adjustmentDate: z.string().optional(),
+    countedQty: z.coerce.number().min(0).finite().max(MAX_QTY),
+    reason: z.string().trim().min(3, 'An unexplained stock correction is not auditable').max(MAX_TEXT),
+    adjustmentDate: isoDate.optional(),
   }),
 });
 
 // BR-08 / AC-4.4: early curing release is never allowed without a reason.
-const releaseEarlySchema = z.object({ body: z.object({ reason: z.string().min(3) }) });
+const releaseEarlySchema = z.object({ body: z.object({ reason: z.string().min(3).max(MAX_TEXT) }) });
 
 module.exports = {
   listReservationsQuerySchema,

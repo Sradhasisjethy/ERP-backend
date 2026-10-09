@@ -3,10 +3,11 @@ const { getTenantId } = require('./tenantContext');
 
 /**
  * Base class for tenant-scoped models. `beforeFind` / `beforeCount` /
- * `beforeValidate` transparently apply the current tenant (from CLS) so callers
- * never have to filter by tenantId manually.
+ * `beforeValidate` / `beforeBulkUpdate` / `beforeBulkDestroy` transparently apply
+ * the current tenant (from CLS) so callers never have to filter by tenantId
+ * manually.
  *
- * There are deliberately no beforeUpdate/beforeDestroy hooks here. Every call site in this
+ * There are deliberately no instance-level beforeUpdate/beforeDestroy hooks here. Every call site in this
  * codebase fetches the instance via a tenant-scoped findByPk/findOne *before* calling
  * `.update()`/`.destroy()` on it, so the instance is already guaranteed to belong to the
  * current tenant by the time those run — an extra hook adds no real protection. It's also
@@ -119,6 +120,25 @@ class BaseScopedModel extends Model {
             const tenantId = getTenantId();
             if (tenantId) {
               instance.tenantId = tenantId;
+            }
+          },
+          // Static `Model.update(values, { where })` and `Model.destroy({ where })`
+          // fire neither beforeFind nor any instance hook, so until these existed
+          // a bulk write matched rows in every tenant. One of them closed every
+          // tenant's current financial year whenever any tenant rolled its own
+          // (factory.service.js). The bulk hooks receive `options` only — not an
+          // instance — so they are safe in the way the note at the top of this
+          // class describes for the instance-level ones.
+          beforeBulkUpdate: (options) => {
+            const tenantId = getTenantId();
+            if (tenantId) {
+              options.where = { ...options.where, tenantId };
+            }
+          },
+          beforeBulkDestroy: (options) => {
+            const tenantId = getTenantId();
+            if (tenantId) {
+              options.where = { ...options.where, tenantId };
             }
           },
           ...(modelHooks || {}),

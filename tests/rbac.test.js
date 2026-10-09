@@ -707,11 +707,14 @@ describe('notification audience', () => {
     const res = await request(app).put('/api/v1/notifications/read-all').set('Cookie', readerCookie);
     expect(res.status).toBe(200);
 
-    // The broadcast is mine to clear; the other user's alert is not.
+    // The other user's alert is not mine to clear. The broadcast is cleared for
+    // me only: a per-user receipt, with the shared row left unread for others.
     const theirs = await Notification.findByPk(theirsId);
     expect(theirs.readAt).toBeNull();
     const broadcast = await Notification.findByPk(broadcastId);
-    expect(broadcast.readAt).not.toBeNull();
+    expect(broadcast.readAt).toBeNull();
+    const { NotificationRead } = require('../src/api/notifications/notificationRead.model');
+    expect(await NotificationRead.count({ where: { notificationId: broadcastId } })).toBe(1);
   });
 });
 

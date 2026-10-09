@@ -3,24 +3,32 @@ const { PartiesService } = require('./parties.service');
 const { PartyAddressService } = require('./partyAddress.service');
 const { sendSuccess, sendList } = require('../../utils/response');
 const { maskRateFields } = require('../../utils/fieldMasking');
+const { maskSensitiveFields, canViewSensitive } = require('./partySensitive');
+
+// Every party this controller returns goes through here: rate masking (BR-27)
+// and identity/bank masking (PARTY_SENSITIVE_READ) in one step.
+const present = (data, req) => maskSensitiveFields(maskRateFields(data, req), req.user);
 
 const listParties = asyncHandler(async (req, res) => {
   const { page, limit, search, status, partyType, partyTypes, sortBy, sortDir } = req.query;
-  const data = await PartiesService.listParties(Number(page), Number(limit), { search, status, partyType, partyTypes, sortBy, sortDir });
-  sendList(res, req, maskRateFields(data, req), 'Parties retrieved successfully');
+  const data = await PartiesService.listParties(Number(page), Number(limit), {
+    search, status, partyType, partyTypes, sortBy, sortDir, canViewSensitive: canViewSensitive(req.user),
+  });
+  sendList(res, req, present(data, req), 'Parties retrieved successfully');
 });
 
 const getParty = asyncHandler(async (req, res) => {
   const data = await PartiesService.getParty(req.params.id);
-  sendSuccess(res, maskRateFields(data, req), 'Party retrieved successfully');
+  sendSuccess(res, present(data, req), 'Party retrieved successfully');
 });
 
 const createParty = asyncHandler(async (req, res) => {
-  sendSuccess(res, await PartiesService.createParty(req.body), 'Party created successfully', 201);
+  // The actor travels with the data: some fields need a grant beyond the route's.
+  sendSuccess(res, present(await PartiesService.createParty(req.body, { actor: req.user }), req), 'Party created successfully', 201);
 });
 
 const updateParty = asyncHandler(async (req, res) => {
-  sendSuccess(res, await PartiesService.updateParty(req.params.id, req.body), 'Party updated successfully');
+  sendSuccess(res, present(await PartiesService.updateParty(req.params.id, req.body, { actor: req.user }), req), 'Party updated successfully');
 });
 
 const deleteParty = asyncHandler(async (req, res) => {
@@ -29,7 +37,7 @@ const deleteParty = asyncHandler(async (req, res) => {
 });
 
 const upsertWageProfile = asyncHandler(async (req, res) => {
-  const data = await PartiesService.upsertWageProfile(req.params.id, req.body);
+  const data = await PartiesService.upsertWageProfile(req.params.id, req.body, { actor: req.user });
   sendSuccess(res, maskRateFields(data, req), 'Wage profile saved successfully');
 });
 

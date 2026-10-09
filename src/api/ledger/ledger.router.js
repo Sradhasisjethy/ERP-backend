@@ -27,6 +27,7 @@ ledgerRouter.get('/cash-book', authorize('LEDGER_READ'), validate(schema.cashBoo
 ledgerRouter.get('/vouchers', authorize('JOURNAL_READ'), validate(schema.voucherListQuerySchema, 'query'), controller.listVouchers);
 ledgerRouter.post('/vouchers', authorize('JOURNAL_CREATE'), validate(schema.createVoucherSchema), controller.createVoucher);
 ledgerRouter.get('/vouchers/:id', authorize('JOURNAL_READ'), controller.getVoucher);
-ledgerRouter.put('/vouchers/:id/cancel', authorize('JOURNAL_MODIFY'), validate(schema.cancelVoucherSchema), controller.cancelVoucher);
+// Named grant: reversing a posted voucher is not implied by JOURNAL_MODIFY.
+ledgerRouter.put('/vouchers/:id/cancel', authorize('JOURNAL_CANCEL'), validate(schema.cancelVoucherSchema), controller.cancelVoucher);
 
 module.exports = { ledgerRouter };

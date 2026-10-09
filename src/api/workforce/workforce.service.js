@@ -19,6 +19,7 @@ const { PricingService } = require('../pricing/pricing.service');
 const { LedgerService } = require('../ledger/ledger.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { NotFoundError, ValidationError, ConflictError } = require('../../core/AppError');
+const { assertExists } = require('../../core/masterGuards');
 
 const getCurrentFinancialYearId = async (transaction) => {
   const fy = await FinancialYear.findOne({ where: { isCurrent: true }, transaction });
@@ -54,6 +55,8 @@ class WorkforceService {
     if (!lines || !lines.length) throw new ValidationError('A material issue requires at least one line');
 
     return sequelize.transaction(async (transaction) => {
+      // The FK alone accepts another tenant's party, which every read includes.
+      await assertExists(Party, contractorPartyId, 'Contractor', { transaction });
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('CONTRACTOR_ISSUE', { factoryId, financialYearId, prefix: 'CMI', transaction });
 
@@ -112,6 +115,7 @@ class WorkforceService {
     if (Number(quantity) <= 0) throw new ValidationError('quantity must be positive');
 
     return sequelize.transaction(async (transaction) => {
+      await assertExists(Party, contractorPartyId, 'Contractor', { transaction });
       const product = await Product.findByPk(productId, { transaction });
       if (!product) throw new NotFoundError('Product not found');
 
@@ -222,6 +226,7 @@ class WorkforceService {
 
   static async markAttendance({ factoryId, labourPartyId, attendanceDate, status, overtimeHours }) {
     return sequelize.transaction(async (transaction) => {
+      await assertExists(Party, labourPartyId, 'Labourer', { transaction });
       const existing = await AttendanceRecord.findOne({ where: { labourPartyId, attendanceDate }, transaction });
       if (existing) throw new ConflictError('Attendance for this labourer on this date is already recorded');
 
@@ -278,6 +283,7 @@ class WorkforceService {
     if (!amountPaise || amountPaise <= 0) throw new ValidationError('amountPaise must be positive');
 
     return sequelize.transaction(async (transaction) => {
+      await assertExists(Party, partyId, 'Party', { transaction });
       const financialYearId = await getCurrentFinancialYearId(transaction);
       const { documentNumber } = await DocumentNumberingService.allocate('ADVANCE', { factoryId, financialYearId, prefix: 'ADV', transaction });
 

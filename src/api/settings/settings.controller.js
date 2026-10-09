@@ -20,9 +20,15 @@ const upsertSetting = asyncHandler(async (req, res) => {
   sendSuccess(res, data, 'Setting saved successfully');
 });
 
+const createSetting = asyncHandler(async (req, res) => {
+  const { key, value, category } = req.body;
+  const data = await SettingsService.create(key, value, category);
+  sendSuccess(res, data, 'Setting created successfully', 201);
+});
+
 const deleteSetting = asyncHandler(async (req, res) => {
   await SettingsService.delete(req.params.key);
   sendSuccess(res, null, 'Setting deleted successfully');
 });
 
-module.exports = { listSettings, getSetting, upsertSetting, deleteSetting };
+module.exports = { listSettings, getSetting, createSetting, upsertSetting, deleteSetting };

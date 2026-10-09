@@ -29,12 +29,9 @@ const previewBundle = asyncHandler(async (req, res) => {
 
   sendSuccess(
     res,
-    {
-      ...plan,
-      components: maskRateFields(plan.components, req),
-      // The header summary is money too, so it goes with the rest.
-      totals: maskRateFields(plan.totals, req),
-    },
+    // The whole plan, not just components/totals: anything else it carries (a
+    // product snapshot, a resolved price) was spread through unmasked.
+    maskRateFields(plan, req),
     plan.bundleRuleId ? 'Bundle preview retrieved successfully' : 'Product has no active bundle'
   );
 });

@@ -113,7 +113,8 @@ const DEFAULT_ROLES = [
       'INVENTORY_READ', 'INVENTORY_CREATE', 'INVENTORY_MODIFY',
       'TRANSFER_READ', 'TRANSFER_CREATE', 'TRANSFER_MODIFY',
       // Goods receipts live under purchasing, so booking a delivery in needs
-      // PURCHASE_CREATE. Deliberately without PURCHASE_APPROVE.
+      // PURCHASE_CREATE. Deliberately without PURCHASE_APPROVE, and without
+      // PURCHASE_INVOICE_CREATE: posting the vendor's bill raises a payable.
       'PURCHASE_READ', 'PURCHASE_CREATE',
       'WASTAGE_READ', 'WASTAGE_CREATE',
       'QUALITY_READ',
@@ -128,6 +129,7 @@ const DEFAULT_ROLES = [
     description: 'Raises indents and purchase orders, manages vendors',
     permissions: [
       'PURCHASE_READ', 'PURCHASE_CREATE', 'PURCHASE_MODIFY', 'PURCHASE_APPROVE',
+      'PURCHASE_INVOICE_CREATE',
       'PARTY_READ', 'PARTY_CREATE', 'PARTY_MODIFY',
       'PRODUCT_READ', 'INVENTORY_READ', 'VEHICLE_READ', 'FACTORY_READ',
       'RETURN_READ', 'RETURN_CREATE',
@@ -144,6 +146,8 @@ const DEFAULT_ROLES = [
       'QUOTATION_READ', 'QUOTATION_CREATE', 'QUOTATION_MODIFY',
       'LEAD_READ', 'LEAD_CREATE', 'LEAD_MODIFY',
       'DISPATCH_READ', 'DISPATCH_CREATE', 'DISPATCH_MODIFY',
+      // Held DISPATCH_MODIFY, which used to be what cancelled a challan.
+      'DISPATCH_CANCEL',
       'RETURN_READ', 'RETURN_CREATE',
       'INVOICE_READ',
       'PARTY_READ', 'PARTY_CREATE', 'PARTY_MODIFY',
@@ -162,6 +166,9 @@ const DEFAULT_ROLES = [
       'INVOICE_READ', 'INVOICE_CREATE', 'INVOICE_MODIFY',
       'RECEIPT_READ', 'RECEIPT_CREATE', 'RECEIPT_MODIFY',
       'PAYMENT_READ', 'PAYMENT_CREATE', 'PAYMENT_MODIFY',
+      // The cancels this role could already perform through the *_MODIFY
+      // grants above, now named so they can be taken away separately.
+      'INVOICE_CANCEL', 'RECEIPT_CANCEL', 'PAYMENT_CANCEL', 'JOURNAL_CANCEL', 'FINANCE_ADJUSTMENT_CANCEL',
       'EXPENSE_READ', 'EXPENSE_CREATE', 'EXPENSE_MODIFY',
       'CASH_REGISTER_READ', 'CASH_REGISTER_CREATE', 'CASH_REGISTER_MODIFY',
       'FINANCE_ADJUSTMENT_READ', 'FINANCE_ADJUSTMENT_CREATE', 'FINANCE_ADJUSTMENT_MODIFY',
@@ -171,7 +178,10 @@ const DEFAULT_ROLES = [
       'JOURNAL_READ', 'JOURNAL_CREATE', 'JOURNAL_MODIFY',
       'FIXED_ASSET_READ', 'FIXED_ASSET_CREATE', 'FIXED_ASSET_MODIFY',
       'PARTY_READ', 'PRODUCT_READ', 'PRICING_READ', 'FACTORY_READ',
-      'SALES_READ', 'PURCHASE_READ',
+      // Vendor bank details are what payments go to, so their upkeep sits
+      // with the books rather than with whoever can edit a phone number.
+      'PARTY_SENSITIVE_MODIFY',
+      'SALES_READ', 'PURCHASE_READ', 'PURCHASE_INVOICE_CREATE',
       'VIEW_RATES', 'AUDIT_READ',
       'REPORT_READ', 'REPORT_FINANCE_READ', 'REPORT_FINANCE_EXPORT',
       'REPORT_SALES_READ', 'REPORT_PURCHASE_READ', 'REPORT_CUSTOMER_READ', 'REPORT_VENDOR_READ',
@@ -203,4 +213,29 @@ const DEFAULT_ROLES = [
   },
 ];
 
-module.exports = { DEFAULT_ROLES, ALL_REPORT_READS };
+/**
+ * Codes added to the default roles after tenants were already seeded, which
+ * `npm run roles:ensure` tops up on existing rows of the same name.
+ *
+ * Only these, not "whatever the row is missing": an administrator who took
+ * VIEW_RATES off their Sales Executive did that on purpose, and a script that
+ * quietly put it back would be undoing their decision.
+ *
+ * `ifHolds` keeps the cancel split a no-op on day one. A cancel code is added
+ * only to a role that still holds the grant which used to perform that cancel,
+ * so a role an administrator already narrowed is not handed it back. `null`
+ * means the code is a new grant the owner decided these roles should have.
+ */
+const LATER_GRANTS = Object.freeze({
+  INVOICE_CANCEL: { ifHolds: ['INVOICE_MODIFY'] },
+  RECEIPT_CANCEL: { ifHolds: ['RECEIPT_MODIFY'] },
+  PAYMENT_CANCEL: { ifHolds: ['PAYMENT_MODIFY'] },
+  JOURNAL_CANCEL: { ifHolds: ['JOURNAL_MODIFY'] },
+  FINANCE_ADJUSTMENT_CANCEL: { ifHolds: ['FINANCE_ADJUSTMENT_MODIFY'] },
+  RETURN_CANCEL: { ifHolds: ['RETURN_MODIFY'] },
+  DISPATCH_CANCEL: { ifHolds: ['DISPATCH_MODIFY'] },
+  PURCHASE_INVOICE_CREATE: { ifHolds: null },
+  PARTY_SENSITIVE_MODIFY: { ifHolds: null },
+});
+
+module.exports = { DEFAULT_ROLES, ALL_REPORT_READS, LATER_GRANTS };

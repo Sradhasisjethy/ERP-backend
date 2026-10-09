@@ -15,6 +15,46 @@ const { Cheque } = require('./cheque.model');
 const { AccountsService } = require('../ledger/accounts.service');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { addPaise } = require('../../utils/money');
+const { assertExists } = require('../../core/masterGuards');
+
+/**
+ * BR-29 for allocation targets. The controller checks the plant the receipt or
+ * payment is posted to, but each allocated invoice names its own plant, so a
+ * Plant B user could settle — and so read the number and total of — a Plant A
+ * invoice by id. `allowedFactoryIds` is getAllowedFactoryIds' answer (null =
+ * unrestricted). 404 for the reason assertCanSeeRecord gives.
+ */
+const isOutsideScope = (invoice, allowedFactoryIds) =>
+  Array.isArray(allowedFactoryIds) && !allowedFactoryIds.includes(invoice.factoryId);
+
+/**
+ * Allocations with lower-cased invoice ids.
+ *
+ * Postgres compares uuids case-insensitively but a JS Map/Set does not, so
+ * 'ABC…' and 'abc…' were two keys here and one invoice in the database — the
+ * per-invoice running total below saw two half-allocations and let the
+ * invoice be settled past its total. The schema lower-cases too; this covers
+ * internal callers (counter sale).
+ */
+const normaliseAllocations = (allocations) =>
+  (allocations || []).map((a) => ({ ...a, invoiceId: String(a.invoiceId).toLowerCase() }));
+
+/**
+ * One row per invoice for the insert. payment_allocations is unique on
+ * (receipt|payment, invoiceType, invoiceId), so a repeated invoice from an
+ * internal caller — already checked as a running total — is written as the
+ * single line it amounts to instead of failing on the constraint.
+ */
+const oneLinePerInvoice = (allocations) => {
+  const byInvoice = new Map();
+  for (const a of allocations) {
+    const prior = byInvoice.get(a.invoiceId);
+    byInvoice.set(a.invoiceId, prior
+      ? { ...prior, allocatedAmountPaise: addPaise(prior.allocatedAmountPaise, a.allocatedAmountPaise) }
+      : a);
+  }
+  return [...byInvoice.values()];
+};
 
 const getCurrentFinancialYearId = async (transaction) => {
   const fy = await FinancialYear.findOne({ where: { isCurrent: true }, transaction });
@@ -122,7 +162,10 @@ const getAllocatedAmountsByInvoice = async (invoiceType, invoiceIds, { transacti
   ]);
 
   for (const row of [...fromReceipts, ...fromPayments]) {
-    totals.set(row.invoiceId, (totals.get(row.invoiceId) || 0) + Number(row.total || 0));
+    // Postgres returns uuids lower-case already; normalised so the key never
+    // depends on that.
+    const key = String(row.invoiceId).toLowerCase();
+    totals.set(key, (totals.get(key) || 0) + Number(row.total || 0));
   }
   return totals;
 };
@@ -209,21 +252,30 @@ class PaymentsService {
     return receipt;
   }
 
-  static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations, transaction: outerTransaction = null }) {
+  static async createReceipt({ factoryId, customerPartyId, receiptDate, modes, allocations: rawAllocations, allowedFactoryIds = null, transaction: outerTransaction = null }) {
+    const allocations = normaliseAllocations(rawAllocations);
     const post = async (transaction) => {
+      // Checked even with no allocations: the FK alone accepts another
+      // tenant's party, and every read then includes its name and GSTIN.
+      await assertExists(Party, customerPartyId, 'Customer', { transaction });
+
       const totalAmountPaise = addPaise(...modes.map((m) => m.amountPaise));
       validateModes(modes, totalAmountPaise);
 
       const allocationTotal = addPaise(...(allocations || []).map((a) => a.allocatedAmountPaise));
       if (allocationTotal > totalAmountPaise) throw new ValidationError('Allocated amount cannot exceed the receipt total');
 
+      // Running per-invoice total within this request: the DB check below only
+      // sees rows already written, so the same invoice listed twice would pass
+      // twice. The schema rejects duplicates too; this guards internal callers.
+      const pendingByInvoice = new Map();
       for (const alloc of allocations || []) {
         // FOR UPDATE: two receipts allocated against the same invoice at the
         // same moment both read "nothing allocated yet" and both pass the
         // over-allocation check, leaving the invoice paid twice. Locking the
         // invoice row makes the second one wait and then see the first.
         const invoice = await SalesInvoice.findByPk(alloc.invoiceId, { transaction, lock: transaction.LOCK.UPDATE });
-        if (!invoice) throw new NotFoundError('Sales invoice not found');
+        if (!invoice || isOutsideScope(invoice, allowedFactoryIds)) throw new NotFoundError('Sales invoice not found');
         if (invoice.status !== 'POSTED') {
           throw new ValidationError(`Invoice ${invoice.invoiceNumber} is ${invoice.status} and cannot receive a payment`);
         }
@@ -236,9 +288,11 @@ class PaymentsService {
           );
         }
         const alreadyAllocated = await getInvoiceAllocatedAmount('SALES', alloc.invoiceId, { transaction });
-        if (alreadyAllocated + alloc.allocatedAmountPaise > invoice.totalPaise) {
+        const pending = addPaise(pendingByInvoice.get(alloc.invoiceId) || 0, alloc.allocatedAmountPaise);
+        if (alreadyAllocated + pending > invoice.totalPaise) {
           throw new ValidationError(`Allocation exceeds the outstanding balance on invoice ${invoice.invoiceNumber}`);
         }
+        pendingByInvoice.set(alloc.invoiceId, pending);
       }
 
       const financialYearId = await getCurrentFinancialYearId(transaction);
@@ -251,7 +305,7 @@ class PaymentsService {
 
       if (allocations && allocations.length) {
         await PaymentAllocation.bulkCreate(
-          allocations.map((a) => ({ receiptId: receipt.id, invoiceType: 'SALES', invoiceId: a.invoiceId, allocatedAmountPaise: a.allocatedAmountPaise })),
+          oneLinePerInvoice(allocations).map((a) => ({ receiptId: receipt.id, invoiceType: 'SALES', invoiceId: a.invoiceId, allocatedAmountPaise: a.allocatedAmountPaise })),
           { transaction, individualHooks: true, validate: true }
         );
       }
@@ -392,8 +446,11 @@ class PaymentsService {
     return payment;
   }
 
-  static async createPayment({ factoryId, partyId, paymentDate, modes, allocations }) {
+  static async createPayment({ factoryId, partyId, paymentDate, modes, allocations: rawAllocations, allowedFactoryIds = null }) {
+    const allocations = normaliseAllocations(rawAllocations);
     return sequelize.transaction(async (transaction) => {
+      await assertExists(Party, partyId, 'Party', { transaction });
+
       const totalAmountPaise = addPaise(...modes.map((m) => m.amountPaise));
       validateModes(modes, totalAmountPaise);
 
@@ -401,19 +458,23 @@ class PaymentsService {
       if (allocationTotal > totalAmountPaise) throw new ValidationError('Allocated amount cannot exceed the payment total');
 
       const touchedInvoices = [];
+      // Same running per-invoice total as createReceipt (duplicate invoiceIds).
+      const pendingByInvoice = new Map();
       for (const alloc of allocations || []) {
         const invoice = await PurchaseInvoice.findByPk(alloc.invoiceId, { transaction, lock: transaction.LOCK.UPDATE });
-        if (!invoice) throw new NotFoundError('Purchase invoice not found');
+        if (!invoice || isOutsideScope(invoice, allowedFactoryIds)) throw new NotFoundError('Purchase invoice not found');
         if (invoice.vendorPartyId !== partyId) {
           throw new ValidationError(
             `Invoice ${invoice.vendorInvoiceNumber} belongs to a different vendor — a payment can only settle its own vendor's invoices`
           );
         }
         const alreadyAllocated = await getInvoiceAllocatedAmount('PURCHASE', alloc.invoiceId, { transaction });
-        if (alreadyAllocated + alloc.allocatedAmountPaise > invoice.amountPaise) {
+        const pending = addPaise(pendingByInvoice.get(alloc.invoiceId) || 0, alloc.allocatedAmountPaise);
+        if (alreadyAllocated + pending > invoice.amountPaise) {
           throw new ValidationError(`Allocation exceeds the outstanding balance on invoice ${invoice.vendorInvoiceNumber}`);
         }
-        touchedInvoices.push(invoice);
+        if (!pendingByInvoice.has(alloc.invoiceId)) touchedInvoices.push(invoice);
+        pendingByInvoice.set(alloc.invoiceId, pending);
       }
 
       const financialYearId = await getCurrentFinancialYearId(transaction);
@@ -426,7 +487,7 @@ class PaymentsService {
 
       if (allocations && allocations.length) {
         await PaymentAllocation.bulkCreate(
-          allocations.map((a) => ({ paymentId: payment.id, invoiceType: 'PURCHASE', invoiceId: a.invoiceId, allocatedAmountPaise: a.allocatedAmountPaise })),
+          oneLinePerInvoice(allocations).map((a) => ({ paymentId: payment.id, invoiceType: 'PURCHASE', invoiceId: a.invoiceId, allocatedAmountPaise: a.allocatedAmountPaise })),
           { transaction, individualHooks: true, validate: true }
         );
       }

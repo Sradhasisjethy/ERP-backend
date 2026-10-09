@@ -66,6 +66,13 @@ const envSchema = z
     DB_PASSWORD: z.string(),
     DB_NAME: z.string(),
     DB_NAME_TEST: z.string().optional(),
+    // TLS to PostgreSQL. Off unless set, because a server without TLS would
+    // refuse every connection — but the database is reached over the public
+    // internet, so production should set it. Certificate verification stays on
+    // unless explicitly turned off (e.g. a self-signed cert with no CA bundle).
+    DB_SSL: z.enum(['true', 'false']).default('false'),
+    DB_SSL_REJECT_UNAUTHORIZED: z.enum(['true', 'false']).default('true'),
+    DB_SSL_CA_FILE: z.string().optional(),
     JWT_SECRET: z.string(),
     JWT_REFRESH_SECRET: z.string(),
     JWT_ACCESS_EXPIRATION: z.string().default('1h'),
@@ -101,7 +108,10 @@ const envSchema = z
         },
         { message: 'APP_TIMEZONE must be an IANA zone name, e.g. Asia/Kolkata' }
       ),
-    RATE_LIMIT_ENABLED: z.enum(['true', 'false']).default('false'),
+    // Unset means "on in production, off elsewhere". It used to default to off
+    // everywhere, so a production deploy that forgot the variable had no
+    // brute-force protection on /auth/login at all.
+    RATE_LIMIT_ENABLED: z.enum(['true', 'false']).optional(),
     // Hops of reverse proxy in front of this process. Express reads the client
     // IP from the right-hand end of X-Forwarded-For counting back this many
     // hops; every rate limiter buckets on that IP.

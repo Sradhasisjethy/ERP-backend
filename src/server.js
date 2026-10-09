@@ -42,7 +42,27 @@ const assertSchemaIsMigrated = async () => {
   }
 };
 
+/**
+ * Several protections key off NODE_ENV=production: secure SameSite=Strict
+ * cookies, rate limiting, and keeping reset links out of the logs. NODE_ENV
+ * defaults to development, so a host that forgets to set it runs with all of
+ * them off and nothing says so. This says so, loudly, at every boot. It does
+ * not refuse to start — a running ERP mid-shift is worth more than a strict one.
+ */
+const warnIfNotProduction = () => {
+  const unset = !process.env.NODE_ENV;
+  const onHost = Boolean(process.env.RENDER || process.env.DYNO || process.env.AWS_EXECUTION_ENV);
+  if (unset || (onHost && env.NODE_ENV !== 'production')) {
+    logger.warn(
+      `NODE_ENV is ${unset ? 'not set (defaulting to development)' : `"${env.NODE_ENV}"`}. ` +
+        'In a deployment this turns off secure cookies, rate limiting and log redaction of reset links. ' +
+        'Set NODE_ENV=production on the host.'
+    );
+  }
+};
+
 const startServer = async () => {
+  warnIfNotProduction();
   try {
     await sequelize.authenticate();
     logger.info('Database connection has been established successfully.');

@@ -3,7 +3,7 @@ const { sendSuccess, sendList } = require('../../utils/response');
 const { hasViewRates } = require('../../utils/fieldMasking');
 const { hasPermission } = require('../../middlewares/authorize');
 const { MasterDataService } = require('./masterData.service');
-const { getConfig } = require('./registry');
+const { getConfig, CONFIGS, permissionsFor } = require('./registry');
 const { ValidationError } = require('../../core/AppError');
 
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -79,7 +79,10 @@ const importErrors = asyncHandler(async (req, res) => {
 });
 
 const listRuns = asyncHandler(async (req, res) => {
-  sendList(res, req, await MasterDataService.listRuns(req.query), 'Imports retrieved successfully');
+  // The run history says who imported what, when, and how many rows failed.
+  // It had no gate at all; it now shows only the masters the caller may import.
+  const allowedModules = CONFIGS.filter((config) => hasPermission(req.user, permissionsFor(config).import)).map((c) => c.key);
+  sendList(res, req, await MasterDataService.listRuns({ ...req.query, allowedModules }), 'Imports retrieved successfully');
 });
 
 module.exports = { modules, template, exportRecords, validateImport, commitImport, getImport, importErrors, listRuns };

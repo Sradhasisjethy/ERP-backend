@@ -3,6 +3,7 @@ const { env } = require('./env');
 const cls = require('cls-hooked');
 const { NAMESPACE_NAME } = require('../core/tenantContext');
 const { resolveTestDatabase } = require('./testDatabaseName');
+const { dbSslOptions } = require('./dbSsl');
 
 // Use cls-hooked for Sequelize transactions and hooks
 Sequelize.useCLS(cls.createNamespace(NAMESPACE_NAME));
@@ -36,7 +37,10 @@ const sequelize = new Sequelize({
    * own setting would not have saved this either.
    */
   timezone: env.APP_TIMEZONE,
-  logging: env.NODE_ENV === 'development' ? console.log : false,
+  // Opt-in, not on by default in development: Sequelize writes WHERE values
+  // into the logged SQL, so login emails, Aadhaar and phone searches and
+  // reset-token hashes all went to the console of every dev server.
+  logging: process.env.DB_LOG_SQL === 'true' ? console.log : false,
 
   /**
    * Left unset, Sequelize allows five connections per process. That is five
@@ -75,6 +79,9 @@ const sequelize = new Sequelize({
   dialectOptions: {
     statement_timeout: 30000,
     idle_in_transaction_session_timeout: 60000,
+    // Encrypts the connection when DB_SSL=true. Without it, credentials and
+    // every row travel in plaintext to a database on a public address.
+    ...dbSslOptions(process.env),
   },
 });
 

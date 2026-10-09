@@ -6,7 +6,7 @@ const { Product } = require('./product.model');
 const { MixDesign } = require('./mixDesign.model');
 const { MixDesignLine } = require('./mixDesignLine.model');
 const { UomConversion } = require('./uomConversion.model');
-const { toOrder } = require('../../utils/pagination');
+const { toOrder, containsPattern } = require('../../utils/pagination');
 const { assertNoDependents, assertUnique } = require('../../core/masterGuards');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 
@@ -65,7 +65,7 @@ class ProductsService {
   static async listUoms(page, limit, search, status, { sortBy, sortDir } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
-    if (search) where[Op.or] = [{ name: { [Op.iLike]: `%${search}%` } }, { code: { [Op.iLike]: `%${search}%` } }];
+    if (search) where[Op.or] = [{ name: { [Op.iLike]: containsPattern(search) } }, { code: { [Op.iLike]: containsPattern(search) } }];
     if (status) where.status = status;
     return Uom.findAndCountAll({ where, limit, offset, order: toOrder(sortBy, sortDir, SORTABLE.uom, [['name', 'ASC']]) });
   }
@@ -111,7 +111,7 @@ class ProductsService {
   static async listProductCategories(page, limit, search, status, { sortBy, sortDir } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
-    if (search) where[Op.or] = [{ name: { [Op.iLike]: `%${search}%` } }, { code: { [Op.iLike]: `%${search}%` } }];
+    if (search) where[Op.or] = [{ name: { [Op.iLike]: containsPattern(search) } }, { code: { [Op.iLike]: containsPattern(search) } }];
     if (status) where.status = status;
     return ProductCategory.findAndCountAll({
       where,
@@ -195,7 +195,7 @@ class ProductsService {
   static async listHsnCodes(page, limit, search, status, { sortBy, sortDir } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
-    if (search) where[Op.or] = [{ code: { [Op.iLike]: `%${search}%` } }, { description: { [Op.iLike]: `%${search}%` } }];
+    if (search) where[Op.or] = [{ code: { [Op.iLike]: containsPattern(search) } }, { description: { [Op.iLike]: containsPattern(search) } }];
     if (status) where.status = status;
     return HsnCode.findAndCountAll({ where, limit, offset, order: toOrder(sortBy, sortDir, SORTABLE.hsn, [['code', 'ASC']]) });
   }
@@ -230,7 +230,7 @@ class ProductsService {
   static async listProducts(page, limit, { search, status, categoryId, productType, isAccessory, sortBy, sortDir } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
-    if (search) where[Op.or] = [{ name: { [Op.iLike]: `%${search}%` } }, { code: { [Op.iLike]: `%${search}%` } }];
+    if (search) where[Op.or] = [{ name: { [Op.iLike]: containsPattern(search) } }, { code: { [Op.iLike]: containsPattern(search) } }];
     if (status) where.status = status;
     if (categoryId) where.categoryId = categoryId;
     if (productType) where.productType = productType;

@@ -18,7 +18,7 @@ const recordLogin = async (req, user) => {
         entityId: user.id,
         action: 'LOGIN',
         beforeSnapshot: null,
-        afterSnapshot: { email: user.email, role: user.role, userAgent: req.get('user-agent') || null },
+        afterSnapshot: { email: user.email, role: user.role, userAgent: (req.get('user-agent') || '').slice(0, 300) || null },
       },
       { validate: false }
     );
@@ -120,10 +120,26 @@ const resetPassword = asyncHandler(async (req, res) => {
   sendSuccess(res, result, 'Password reset successful');
 });
 
+const logoutAll = asyncHandler(async (req, res) => {
+  await authService.logoutAll(req.user.userId);
+  res.clearCookie('accessToken', { path: '/' });
+  res.clearCookie('refreshToken', { path: '/' });
+  sendSuccess(res, null, 'Signed out on every device');
+});
+
+const changePassword = asyncHandler(async (req, res) => {
+  const result = await authService.changePassword(req.user.userId, req.body.currentPassword, req.body.newPassword);
+  res.clearCookie('accessToken', { path: '/' });
+  res.clearCookie('refreshToken', { path: '/' });
+  sendSuccess(res, result, 'Password changed');
+});
+
 module.exports = {
   login,
   refresh,
   logout,
+  logoutAll,
+  changePassword,
   getMe,
   forgotPassword,
   resetPassword,

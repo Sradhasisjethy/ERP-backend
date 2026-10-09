@@ -3,6 +3,7 @@ const { searchWhere } = require('../../utils/pagination');
 const { StockLot } = require('./stockLot.model');
 const { StockLedgerEntry } = require('./stockLedgerEntry.model');
 const { Product } = require('../products/product.model');
+const { nonMoneyAttributes } = require('../../utils/fieldMasking');
 const { Factory } = require('../factory/factory.model');
 const { ValidationError, NotFoundError } = require('../../core/AppError');
 const { toOrder } = require('../../utils/pagination');
@@ -228,11 +229,24 @@ class StockLedgerService {
    * recorded on the ledger entry.
    * Returns the list of { lotId, quantity } actually consumed.
    */
-  static async consumeFifo({ factoryId, productId, quantity, movementType, referenceType, referenceId, overrideLotId, overrideReason, sourceStatus = 'AVAILABLE', heldByPartyId, transaction }) {
+  static async consumeFifo({ factoryId, productId, quantity, movementType, referenceType, referenceId, overrideLotId, overrideReason, overrideAnyStatus = false, sourceStatus = 'AVAILABLE', heldByPartyId, transaction }) {
     await this.promoteEligibleLots(factoryId, transaction);
 
     if (overrideLotId) {
       if (!overrideReason) throw new ValidationError('overrideReason is required when selecting a specific lot');
+      // A named lot used to be taken on trust: postEntry matched only id and
+      // factory, so a dispatch could draw on a lot still curing, held for QC or
+      // failed — or a lot of a different product altogether. The lot must hold
+      // this product and be in the state FIFO would have drawn from.
+      // `overrideAnyStatus` is for the two callers that legitimately move stock
+      // in other states: returning rejected goods to a vendor, and reversing a
+      // sales return out of the lot it created.
+      const lot = await StockLot.findOne({ where: { id: overrideLotId, factoryId }, transaction });
+      if (!lot) throw new NotFoundError('Stock lot not found for this factory');
+      if (lot.productId !== productId) throw new ValidationError('The selected lot holds a different product');
+      if (!overrideAnyStatus && lot.status !== sourceStatus) {
+        throw new ValidationError(`The selected lot is ${lot.status}; only ${sourceStatus} stock can be used here`);
+      }
       await this.postEntry({
         factoryId, productId, lotId: overrideLotId, movementType, direction: 'OUT', quantity,
         referenceType, referenceId, notes: `Lot override: ${overrideReason}`, transaction,
@@ -313,7 +327,8 @@ class StockLedgerService {
       where,
       limit,
       offset,
-      include: [{ model: Product, as: 'product' }],
+      // Identity only: a stock list has no use for the product's cost or price.
+      include: [{ model: Product, as: 'product', attributes: nonMoneyAttributes(Product) }],
       order: toOrder(sortBy, sortDir, LOT_SORTABLE, [['originDate', 'ASC']]),
     });
   }
@@ -325,7 +340,7 @@ class StockLedgerService {
     if (lotId) where.lotId = lotId;
     if (movementType) where.movementType = movementType;
 
-    const include = [{ model: Product, as: 'product' }, { model: StockLot, as: 'lot' }];
+    const include = [{ model: Product, as: 'product', attributes: nonMoneyAttributes(Product) }, { model: StockLot, as: 'lot' }];
     // `search` was accepted by the query schema and silently discarded here.
     if (search) {
       include[1] = { ...include[1], where: searchWhere(search, ['lotNumber']), required: true };
@@ -338,6 +353,12 @@ class StockLedgerService {
       include,
       order: toOrder(sortBy, sortDir, ENTRY_SORTABLE, [['createdAt', 'DESC']]),
     });
+  }
+
+  static async getLot(id) {
+    const lot = await StockLot.findByPk(id);
+    if (!lot) throw new NotFoundError('Stock lot not found');
+    return lot;
   }
 
   /**

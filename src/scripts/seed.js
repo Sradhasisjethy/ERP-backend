@@ -24,6 +24,7 @@ const {
   PriceListItem,
 } = require('../models/index');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const cls = require('cls-hooked');
 const { EmployeeStatus, EmployeeType, SystemRoles } = require('../utils/constants');
 const { NAMESPACE_NAME } = require('../core/tenantContext');
@@ -144,7 +145,7 @@ const seedDatabase = async () => {
           status,
           departmentId: departments[i % departments.length].id,
           officeId: offices[i % offices.length].id,
-          passwordHash: await bcrypt.hash('12345678', 10),
+          passwordHash: await bcrypt.hash(SEED_PASSWORD, 10),
           role: i === 0 ? SystemRoles.PLATFORM_ADMIN : SystemRoles.EMPLOYEE,
         },
         { validate: false }
@@ -314,6 +315,7 @@ const seedDatabase = async () => {
     console.log(`Factories: ${factories.length}`);
     console.log(`Products: 4 (+ 1 Mix Design)`);
     console.log(`Parties: 4`);
+    console.log(`Seeded accounts share one password, shown once: ${SEED_PASSWORD}`);
     console.log('Seeding completed successfully!');
 
     process.exit(0);
@@ -322,5 +324,19 @@ const seedDatabase = async () => {
     process.exit(1);
   }
 };
+
+/**
+ * Seed data is demo data: fictional people with predictable emails, the first of
+ * them a PLATFORM_ADMIN. It used to give every one of them the same short,
+ * hardcoded password, which is published in this public repository — so a
+ * seeded database anywhere reachable had a known superuser login. The password
+ * is now random per run (or SEED_PASSWORD, for a repeatable local setup), and
+ * the script refuses to touch a production database at all.
+ */
+if (process.env.NODE_ENV === 'production') {
+  console.error('Refusing to seed: NODE_ENV is production. Seed data includes a demo PLATFORM_ADMIN account.');
+  process.exit(1);
+}
+const SEED_PASSWORD = process.env.SEED_PASSWORD || crypto.randomBytes(9).toString('base64url');
 
 seedDatabase();

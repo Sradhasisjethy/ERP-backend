@@ -7,6 +7,7 @@ const { NotFoundError, ValidationError, ForbiddenError } = require('../../core/A
 const { hasPermission } = require('../../middlewares/authorize');
 const { getAllowedFactoryIds } = require('../../core/factoryAccess');
 const { assertCanUseFactory } = require('../../core/salesScope');
+const { PARAMS_BY_TYPE } = require('./reports.schema');
 
 /**
  * M40 "report builder": each reportType maps to one already-built, already-
@@ -41,11 +42,21 @@ const REPORT_PERMISSIONS = {
   GSTR3B: 'GSTR_READ',
 };
 
-/** Reports whose result is a single factory's figures. */
+/**
+ * Reports whose result is a single factory's figures. DOCUMENT_SEARCH and
+ * PARTY_LEDGER span plants, so for them a named factoryId is applied as the
+ * restriction (see `factoryOnly`); a restricted caller must name one, the same
+ * as for every other entry here.
+ */
 const FACTORY_SCOPED_REPORTS = new Set([
   'STOCK_AGEING', 'DASHBOARD_KPIS', 'COSTING', 'ALERTS',
   'CANCELLATION_ANALYTICS', 'TRIAL_BALANCE', 'CASH_BOOK', 'GSTR1', 'GSTR3B',
+  'DOCUMENT_SEARCH', 'PARTY_LEDGER',
 ]);
+
+// assertMayRun has already checked p.factoryId; null keeps an unrestricted
+// caller's "every location" run unchanged.
+const factoryOnly = (p) => (p.factoryId ? [p.factoryId] : null);
 
 const RUNNERS = {
   STOCK_AGEING: (p) => AnalyticsService.getStockAgeing(p.factoryId, { deadStockDays: p.deadStockDays }),
@@ -53,12 +64,12 @@ const RUNNERS = {
   COSTING: (p) => AnalyticsService.getCostingReport(p.factoryId),
   ALERTS: (p) => AnalyticsService.getAlerts(p.factoryId),
   CANCELLATION_ANALYTICS: (p) => AnalyticsService.getCancellationAnalytics(p.factoryId, { fromDate: p.fromDate, toDate: p.toDate }),
-  DOCUMENT_SEARCH: (p) => AnalyticsService.searchDocuments(p.q, { limit: p.limit }),
+  DOCUMENT_SEARCH: (p) => AnalyticsService.searchDocuments(p.q, { limit: p.limit, allowedFactoryIds: factoryOnly(p) }),
   TRIAL_BALANCE: (p) => LedgerService.getTrialBalance(p.factoryId),
   PARTY_LEDGER: async (p) => {
     const [ledger, outstandingPaise] = await Promise.all([
-      LedgerService.getPartyLedger(p.partyId, { page: p.page || 1, limit: p.limit || 50 }),
-      LedgerService.getPartyOutstanding(p.partyId),
+      LedgerService.getPartyLedger(p.partyId, { page: p.page || 1, limit: p.limit || 50, allowedFactoryIds: factoryOnly(p) }),
+      LedgerService.getPartyOutstanding(p.partyId, factoryOnly(p)),
     ]);
     return { rows: ledger.rows, count: ledger.count, outstandingPaise };
   },
@@ -134,7 +145,30 @@ class ReportsService {
     const report = await this.get(id);
     // Checked against the merged params, not the stored ones: a saved report is
     // a convenience, never a way to carry someone else's factory id forward.
-    return this.run(report.reportType, { ...report.params, ...(paramOverrides || {}) }, req);
+    const merged = { ...(report.params || {}), ...(paramOverrides || {}) };
+
+    // Only the overrides were validated (by the route schema). The stored half
+    // predates the per-type schemas or was written straight to the table, so
+    // { q: {} } reached the search runner as an object and came back a 500.
+    // The same per-type schema the create route uses, so '' and null still
+    // mean "not given". Key names only in the message — values may be junk or
+    // someone else's ids.
+    const schema = PARAMS_BY_TYPE[report.reportType];
+    if (schema) {
+      const parsed = schema.safeParse(merged);
+      if (!parsed.success) {
+        const keys = new Set();
+        for (const issue of parsed.error.issues) {
+          if (issue.code === 'unrecognized_keys') issue.keys.forEach((k) => keys.add(k));
+          else if (issue.path.length) keys.add(String(issue.path[0]));
+        }
+        throw new ValidationError(
+          `This saved report has invalid parameters (${[...keys].join(', ') || 'params'}) — edit or re-create it`
+        );
+      }
+      return this.run(report.reportType, parsed.data, req);
+    }
+    return this.run(report.reportType, merged, req);
   }
 }
 

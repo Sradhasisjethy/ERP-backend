@@ -6,7 +6,7 @@ const { Product } = require('../../products/product.model');
 const { ProductCategory } = require('../../products/productCategory.model');
 const { hasViewRates } = require('../../../utils/fieldMasking');
 const { executeReport } = require('../lib/runner');
-const { resolveFormatSettings, formatDate, formatValue, humanise } = require('./format');
+const { resolveFormatSettings, safeLocale, formatDate, formatValue, humanise } = require('./format');
 const { renderInWorker } = require('./workers');
 
 /**
@@ -150,10 +150,10 @@ const periodLabel = (params) => {
 /** RFC 4180 CSV, with the spreadsheet-formula injection guard the old exporter had. */
 const csvEscape = (value) => {
   const text = String(value ?? '');
-  // A leading =, +, - or @ makes Excel treat the cell as a formula, which is a
+  // A leading =, +, -, @, tab or CR makes Excel treat the cell as a formula, which is a
   // real injection vector when the data came from user input. Prefixing with a
   // quote neutralises it without changing what the reader sees.
-  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 
@@ -219,7 +219,8 @@ const exportReport = async (definition, req, params, format, res) => {
       generatedAt: new Date(),
       userName,
       canViewRates: hasViewRates(req),
-      rowCountLabel: `${result.count.toLocaleString(settings.locale)} row(s).`,
+      // safeLocale again: toLocaleString throws a RangeError on a bad tag.
+      rowCountLabel: `${result.count.toLocaleString(safeLocale(settings.locale))} row(s).`,
     },
   };
 

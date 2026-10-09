@@ -120,7 +120,13 @@ masterDataRouter.get('/imports/:importId/errors', authorizeRun('import'), contro
 // A blank sample is a list of column names, which anyone who may open the
 // screen can already read — so it is gated on read, not on import.
 masterDataRouter.get('/:module/template', authorizeModule('read'), controller.template);
-masterDataRouter.get('/:module/export', authorizeModule('export'), controller.exportRecords);
-masterDataRouter.post('/:module/import/validate', authorizeModule('import'), receiveFile, controller.validateImport);
+masterDataRouter.get('/:module/export', authorizeModule('export'), validate(schema.masterQuerySchema, 'query'), controller.exportRecords);
+masterDataRouter.post(
+  '/:module/import/validate',
+  authorizeModule('import'),
+  validate(schema.masterQuerySchema, 'query'),
+  receiveFile,
+  controller.validateImport
+);
 
 module.exports = { masterDataRouter };

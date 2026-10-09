@@ -272,10 +272,10 @@ document_series indexes (migration): + document_series_unique_with_factory, _wit
 **Why it matters.** There is no repeatable path from this repository to a running production system, and no automated gate preventing a regression from shipping. Default pool of 5 will bottleneck under concurrent load; unencrypted DB connections are unacceptable for financial data over any non-local network.
 **Fix.** Multi-stage Dockerfile; CI running migrations + tests + lint on every PR; TLS termination and `NODE_ENV=production`; explicit `pool` and `dialectOptions.ssl`; centralised log shipping; health/readiness split (`/health` liveness plus a readiness probe that checks DB connectivity); documented rollback via migration `down` scripts.
 
-## P1-6 — Seed script creates a `PLATFORM_ADMIN` with password `12345678`
+## P1-6 — Seed script creates a `PLATFORM_ADMIN` with password a hardcoded default (redacted)
 
-**Problem / Evidence.** [src/scripts/seed.js:159-160](src/scripts/seed.js#L159-L160) — `passwordHash: await bcrypt.hash('12345678', 10)` with `role: PLATFORM_ADMIN` for the first employee.
-**Why it matters.** If the seed is ever run against a production or staging database — common when bootstrapping — the system ships with a known-credential superuser. `12345678` also violates the system's own configured `passwordMinLength` policy semantics.
+**Problem / Evidence.** [src/scripts/seed.js:159-160](src/scripts/seed.js#L159-L160) — `passwordHash: await bcrypt.hash('<redacted>', 10)` with `role: PLATFORM_ADMIN` for the first employee.
+**Why it matters.** If the seed is ever run against a production or staging database — common when bootstrapping — the system ships with a known-credential superuser. a hardcoded default (redacted) also violates the system's own configured `passwordMinLength` policy semantics.
 **Fix.** Require an env-supplied password, or generate a random one and print it once; refuse to run when `NODE_ENV=production`.
 
 ## P1-7 — In-process scheduler duplicates nightly work across replicas

@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../utils/pagination');
 const { sequelize } = require('../../config/database');
 const { PriceList } = require('./priceList.model');
 const { PriceListItem } = require('./priceListItem.model');
@@ -6,12 +7,22 @@ const { Product } = require('../products/product.model');
 const { Party } = require('../parties/party.model');
 const { Uom } = require('../products/uom.model');
 const { NotFoundError } = require('../../core/AppError');
+const { assertExists } = require('../../core/masterGuards');
+
+/**
+ * The FKs alone accept another tenant's party or product, and the price list
+ * screen then includes that tenant's names, codes and units.
+ */
+const assertOwnReferences = async ({ partyId, items }, transaction) => {
+  await assertExists(Party, partyId, 'Party', { transaction });
+  await assertExists(Product, (items || []).map((item) => item.productId), 'Product', { transaction });
+};
 
 class PricingService {
   static async listPriceLists(page, limit, { search, status, priceType, partyId } = {}) {
     const offset = (page - 1) * limit;
     const where = {};
-    if (search) where.name = { [Op.iLike]: `%${search}%` };
+    if (search) where.name = { [Op.iLike]: containsPattern(search) };
     if (status) where.status = status;
     if (priceType) where.priceType = priceType;
     if (partyId) where.partyId = partyId;
@@ -42,6 +53,7 @@ class PricingService {
 
   static async createPriceList({ items, ...data }) {
     return sequelize.transaction(async (transaction) => {
+      await assertOwnReferences({ partyId: data.partyId, items }, transaction);
       const priceList = await PriceList.create(data, { transaction });
       if (items && items.length) {
         await PriceListItem.bulkCreate(
@@ -57,6 +69,7 @@ class PricingService {
     const priceList = await this.getPriceList(id);
 
     return sequelize.transaction(async (transaction) => {
+      await assertOwnReferences({ partyId: data.partyId, items }, transaction);
       await priceList.update(data, { transaction });
 
       if (items) {
@@ -124,6 +137,7 @@ class PricingService {
   // --- Individual price list items ---
   static async upsertItem(priceListId, { productId, ratePaise, effectiveFrom }) {
     await this.getPriceList(priceListId);
+    await assertExists(Product, productId, 'Product');
     const [item] = await PriceListItem.findOrCreate({
       where: { priceListId, productId },
       defaults: { priceListId, productId, ratePaise, effectiveFrom },

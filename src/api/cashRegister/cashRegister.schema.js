@@ -1,7 +1,17 @@
 const { z } = require('zod');
 
+// One list, owned by the service, so the schema and the counter can't drift.
+const { DENOMINATIONS, MAX_DENOMINATION_COUNT } = require('./cashRegister.service');
+
 // { "500": 10, "100": 4 } — note value to how many. Counts are whole notes.
-const denominationsBody = z.record(z.string(), z.coerce.number().int().min(0));
+// Keys are limited to real notes/coins: the count can drive a Cash Short /
+// Excess journal at close, so "1e12": 1 must not reach the books.
+const denominationsBody = z.record(
+  z.enum(DENOMINATIONS.map(String), {
+    errorMap: () => ({ message: `Denomination must be one of ${DENOMINATIONS.join(', ')}` }),
+  }),
+  z.coerce.number().int().min(0).max(MAX_DENOMINATION_COUNT)
+);
 
 const openSessionSchema = z.object({
   body: z.object({

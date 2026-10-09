@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../../utils/pagination');
 const { Vehicle } = require('../../vehicles/vehicle.model');
 const { Party } = require('../../parties/party.model');
 const { VehicleService } = require('../../vehicles/vehicles.service');
@@ -72,7 +73,7 @@ const vehicles = {
         ...(query.vehicleType ? { vehicleType: query.vehicleType } : {}),
         ...(query.ownership ? { ownership: query.ownership } : {}),
         ...(query.search
-          ? { [Op.or]: ['registrationNumber', 'driverName'].map((column) => ({ [column]: { [Op.iLike]: `%${query.search}%` } })) }
+          ? { [Op.or]: ['registrationNumber', 'driverName'].map((column) => ({ [column]: { [Op.iLike]: containsPattern(query.search) } })) }
           : {}),
       },
       include: [{ model: Party, as: 'transporter', attributes: ['id', 'code'] }],

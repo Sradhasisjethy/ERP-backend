@@ -124,7 +124,8 @@ const deleteLine = asyncHandler(async (req, res) => {
 const availableAccessories = asyncHandler(async (req, res) => {
   const parent = await loadLine(req, req.params.parentLineId, req.params.id);
   const data = await BundleDocumentService.availableAccessories(parent.id);
-  sendSuccess(res, data, 'Available accessories retrieved successfully');
+  // No money today, but it is product data on a sales screen — masked like the rest.
+  sendSuccess(res, maskRateFields(data, req), 'Available accessories retrieved successfully');
 });
 
 module.exports = {

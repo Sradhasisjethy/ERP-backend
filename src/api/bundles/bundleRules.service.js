@@ -9,7 +9,7 @@ const { assertUsableProducts } = require('../../core/masterGuards');
 const { todayInZone } = require('../../utils/dateDisplay');
 const { SettingsService } = require('../settings/settings.service');
 const { NotFoundError, ValidationError, ConflictError } = require('../../core/AppError');
-const { toOrder } = require('../../utils/pagination');
+const { toOrder, containsPattern } = require('../../utils/pagination');
 
 const SORTABLE = ['code', 'name', 'version', 'status', 'effectiveFrom', 'createdAt'];
 
@@ -29,7 +29,7 @@ class BundleRulesService {
     if (parentProductId) where.parentProductId = parentProductId;
     if (status) where.status = status;
     if (search) {
-      where[Op.or] = [{ code: { [Op.iLike]: `%${search}%` } }, { name: { [Op.iLike]: `%${search}%` } }];
+      where[Op.or] = [{ code: { [Op.iLike]: containsPattern(search) } }, { name: { [Op.iLike]: containsPattern(search) } }];
     }
 
     return BundleRule.findAndCountAll({
@@ -381,11 +381,18 @@ class OverrideReasonCodesService {
   }
 
   static async update(code, data) {
-    const reason = await OverrideReasonCode.findOne({ where: { code } });
+    // Normalised the way create() stored it, so /reason-codes/damaged finds DAMAGED.
+    const normalised = String(code).trim().toUpperCase();
+    const reason = await OverrideReasonCode.findOne({ where: { code: normalised } });
     if (!reason) throw new NotFoundError('Reason code not found');
 
-    delete data.code;
-    await reason.update(data);
+    // The route schema already limits the body to these three; picking them
+    // here as well keeps a direct caller from writing anything else.
+    const { label, requiresNote, isActive } = data || {};
+    const changes = Object.fromEntries(
+      Object.entries({ label, requiresNote, isActive }).filter(([, value]) => value !== undefined)
+    );
+    await reason.update(changes);
     return reason;
   }
 

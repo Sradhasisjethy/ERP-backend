@@ -14,12 +14,14 @@ paymentsRouter.use(authenticate, tenantScope, auditContext);
 paymentsRouter.get('/receipts', authorize('RECEIPT_READ'), validate(schema.listQuerySchema, 'query'), controller.listReceipts);
 paymentsRouter.post('/receipts', authorize('RECEIPT_CREATE'), validate(schema.createReceiptSchema), controller.createReceipt);
 paymentsRouter.get('/receipts/:id', authorize('RECEIPT_READ'), controller.getReceipt);
-paymentsRouter.put('/receipts/:id/cancel', authorize('RECEIPT_MODIFY'), validate(schema.cancelSchema), controller.cancelReceipt);
+// Cancels are named grants (<DOC>_CANCEL), not *_MODIFY: reversing money that
+// has posted is a different decision from correcting a record.
+paymentsRouter.put('/receipts/:id/cancel', authorize('RECEIPT_CANCEL'), validate(schema.cancelSchema), controller.cancelReceipt);
 
 paymentsRouter.get('/payments', authorize('PAYMENT_READ'), validate(schema.listQuerySchema, 'query'), controller.listPayments);
 paymentsRouter.post('/payments', authorize('PAYMENT_CREATE'), validate(schema.createPaymentSchema), controller.createPayment);
 paymentsRouter.get('/payments/:id', authorize('PAYMENT_READ'), controller.getPayment);
-paymentsRouter.put('/payments/:id/cancel', authorize('PAYMENT_MODIFY'), validate(schema.cancelSchema), controller.cancelPayment);
+paymentsRouter.put('/payments/:id/cancel', authorize('PAYMENT_CANCEL'), validate(schema.cancelSchema), controller.cancelPayment);
 
 // FR-M18-7: cheques are followed from issue to clearance/bounce.
 paymentsRouter.get('/cheques', authorize('PAYMENT_READ'), validate(schema.chequeListQuerySchema, 'query'), controller.listCheques);
@@ -27,6 +29,8 @@ paymentsRouter.get('/cheques/:id', authorize('PAYMENT_READ'), controller.getCheq
 paymentsRouter.put('/cheques/:id/present', authorize('PAYMENT_MODIFY'), validate(schema.presentSchema), controller.presentCheque);
 paymentsRouter.put('/cheques/:id/clear', authorize('PAYMENT_MODIFY'), validate(schema.clearSchema), controller.clearCheque);
 paymentsRouter.put('/cheques/:id/bounce', authorize('PAYMENT_MODIFY'), validate(schema.bounceSchema), controller.bounceCheque);
-paymentsRouter.put('/cheques/:id/cancel', authorize('PAYMENT_MODIFY'), validate(schema.cancelSchema), controller.cancelCheque);
+// Present/clear/bounce record what the bank did and stay on PAYMENT_MODIFY;
+// cancelling the cheque reverses the payment, so it takes the cancel grant.
+paymentsRouter.put('/cheques/:id/cancel', authorize('PAYMENT_CANCEL'), validate(schema.cancelSchema), controller.cancelCheque);
 
 module.exports = { paymentsRouter };

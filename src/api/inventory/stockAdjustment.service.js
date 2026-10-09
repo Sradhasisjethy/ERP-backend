@@ -3,6 +3,10 @@ const { StockAdjustment } = require('./stockAdjustment.model');
 const { StockLot } = require('./stockLot.model');
 const { StockLedgerService } = require('./stockLedger.service');
 const { Product } = require('../products/product.model');
+const { nonMoneyAttributes } = require('../../utils/fieldMasking');
+
+// Identity only: an adjustment is a quantity correction, not a valuation.
+const productInclude = () => ({ model: Product, as: 'product', attributes: nonMoneyAttributes(Product) });
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { toOrder } = require('../../utils/pagination');
@@ -41,14 +45,14 @@ class StockAdjustmentService {
       where,
       limit,
       offset,
-      include: [{ model: Product, as: 'product' }, { model: StockLot, as: 'lot' }],
+      include: [productInclude(), { model: StockLot, as: 'lot' }],
       order: toOrder(sortBy, sortDir, SORTABLE, [['adjustmentDate', 'DESC'], ['createdAt', 'DESC']]),
     });
   }
 
   static async get(id) {
     const adjustment = await StockAdjustment.findByPk(id, {
-      include: [{ model: Product, as: 'product' }, { model: StockLot, as: 'lot' }],
+      include: [productInclude(), { model: StockLot, as: 'lot' }],
     });
     if (!adjustment) throw new NotFoundError('Stock adjustment not found');
     return adjustment;

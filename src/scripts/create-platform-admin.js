@@ -2,16 +2,22 @@ const bcrypt = require('bcrypt');
 const { sequelize } = require('../config/database');
 const { User, Tenant, Organization } = require('../models');
 const { SystemRoles, EmployeeStatus, EmployeeType } = require('../utils/constants');
+const { readPassword, MIN_PASSWORD_LENGTH } = require('./readPassword');
 
 async function main() {
   const email = process.argv[2];
-  const password = process.argv[3];
   const firstName = process.argv[4] || 'Admin';
   const lastName = process.argv[5] || 'User';
 
-  if (!email || !password) {
-    console.log('\nUsage: node src/scripts/create-platform-admin.js <email> <password> [firstName] [lastName]');
-    console.log('Example: node src/scripts/create-platform-admin.js rogers@shield.com 9988 Rogers Shield\n');
+  if (!email) {
+    console.log('\nUsage: node src/scripts/create-platform-admin.js <email> [password] [firstName] [lastName]');
+    console.log('Pass "" as the password to be prompted for it.\n');
+    process.exit(1);
+  }
+
+  const password = await readPassword(process.argv[3], 'New admin password: ');
+  if (!password || password.length < MIN_PASSWORD_LENGTH) {
+    console.error(`\nPassword must be at least ${MIN_PASSWORD_LENGTH} characters.\n`);
     process.exit(1);
   }
 

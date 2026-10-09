@@ -3,6 +3,24 @@ const { DocumentSeries } = require('./documentSeries.model');
 const { getTenantId } = require('../../core/tenantContext');
 
 /**
+ * The factory code as it may appear inside a document number. The schema now
+ * holds new codes to [A-Z0-9-]{1,10}, but rows saved before that may hold
+ * anything, and the number travels into PDF headers and GST filings. A code
+ * that already fits comes out exactly as before (uppercased, whitespace runs
+ * to '-'), so numbering for valid plants is unchanged; characters outside
+ * [A-Z0-9-] are dropped, and a code with nothing left gives no plant segment.
+ */
+const plantSegment = (rawCode) => {
+  if (!rawCode) return null;
+  const cleaned = String(rawCode).trim().toUpperCase().replace(/\s+/g, '-')
+    .replace(/[^A-Z0-9-]/g, '');
+  // Deliberately not truncated: the schema caps new codes at 10, and cutting an
+  // existing longer code could give two plants the same prefix (PLANTNORTH1 and
+  // PLANTNORTH2 both -> PLANTNORTH) and collide on the unique number index.
+  return cleaned || null;
+};
+
+/**
  * Builds the default prefix for a brand-new series.
  *
  * A series is keyed (documentType, factoryId, financialYearId) and its sequence
@@ -29,7 +47,7 @@ const defaultPrefixFor = async (prefix, documentType, factoryId, transaction) =>
 
   const { Factory } = require('../factory/factory.model');
   const factory = await Factory.findByPk(factoryId, { attributes: ['code'], transaction });
-  const code = factory && factory.code ? String(factory.code).trim().toUpperCase().replace(/\s+/g, '-') : null;
+  const code = plantSegment(factory && factory.code);
   return code ? `${base}/${code}` : base;
 };
 

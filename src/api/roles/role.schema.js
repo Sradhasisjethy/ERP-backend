@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { MAX_STRING, MAX_TEXT, MAX_SEARCH, MAX_LINES } = require('../../utils/zodFields');
 const { isKnownPermission } = require('../../utils/permissionCatalog');
 
 /**
@@ -7,7 +8,7 @@ const { isKnownPermission } = require('../../utils/permissionCatalog');
  * grants nothing, which is the kind of bug nobody finds until an audit.
  */
 const permissionCodes = z
-  .array(z.string())
+  .array(z.string().max(MAX_STRING)).max(MAX_LINES)
   .default([])
   .superRefine((codes, ctx) => {
     const unknown = [...new Set(codes.filter((code) => !isKnownPermission(code)))];
@@ -20,9 +21,9 @@ const permissionCodes = z
   });
 
 const roleBody = z.object({
-  name: z.string().trim().min(1),
-  code: z.string().trim().optional(),
-  description: z.string().trim().optional(),
+  name: z.string().trim().min(1).max(MAX_STRING),
+  code: z.string().trim().max(MAX_STRING).optional(),
+  description: z.string().trim().max(MAX_TEXT).optional(),
   permissions: permissionCodes,
 });
 
@@ -41,10 +42,10 @@ const assignMemberSchema = z.object({
 });
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
-  search: z.string().trim().min(1).optional(),
-  sortBy: z.string().trim().min(1).optional(),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   status: z.enum(['active', 'inactive']).optional(),
 });

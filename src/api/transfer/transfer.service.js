@@ -5,6 +5,9 @@ const { StockTransferLine } = require('./stockTransferLine.model');
 const { StockLot } = require('../inventory/stockLot.model');
 const { StockLedgerEntry } = require('../inventory/stockLedgerEntry.model');
 const { Product } = require('../products/product.model');
+const { nonMoneyAttributes } = require('../../utils/fieldMasking');
+// Product includes carry identity only: nothing here values stock, and the
+// cost/price columns rode along to every role that could read the list.
 const { FinancialYear } = require('../factory/financialYear.model');
 const { DocumentNumberingService } = require('../documentSeries/documentNumbering.service');
 const { StockLedgerService } = require('../inventory/stockLedger.service');
@@ -29,7 +32,7 @@ class TransferService {
       where,
       limit,
       offset,
-      include: [{ model: StockTransferLine, as: 'lines', include: [{ model: Product, as: 'product' }] }],
+      include: [{ model: StockTransferLine, as: 'lines', include: [{ model: Product, as: 'product', attributes: nonMoneyAttributes(Product) }] }],
       order: [['initiatedDate', 'DESC']],
     });
   }
@@ -41,7 +44,7 @@ class TransferService {
           model: StockTransferLine,
           as: 'lines',
           include: [
-            { model: Product, as: 'product' },
+            { model: Product, as: 'product', attributes: nonMoneyAttributes(Product) },
             { model: StockLot, as: 'sourceLot' },
             { model: StockLot, as: 'destinationLot' },
           ],

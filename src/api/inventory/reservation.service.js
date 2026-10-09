@@ -201,6 +201,7 @@ class ReservationService {
    */
   static async listAll(page, limit, { productId, status, search, baseWhere = {} } = {}) {
     const { Product } = require('../products/product.model');
+    const { nonMoneyAttributes } = require('../../utils/fieldMasking');
     const { searchWhere, toOrder } = require('../../utils/pagination');
     const offset = (page - 1) * limit;
 
@@ -211,7 +212,8 @@ class ReservationService {
     if (productId) where.productId = productId;
 
     const include = [
-      { model: Product, as: 'product' },
+      // Identity only — a hold list has no use for the product's cost or price.
+      { model: Product, as: 'product', attributes: nonMoneyAttributes(Product) },
       { model: StockLot, as: 'lot' },
     ];
     if (search) {

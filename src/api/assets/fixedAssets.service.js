@@ -10,6 +10,7 @@ const { AccountsService } = require('../ledger/accounts.service');
 const { JournalEntry } = require('../ledger/journalEntry.model');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
 const { assertNotFuture } = require('../../utils/businessDate');
+const { assertExists } = require('../../core/masterGuards');
 
 /**
  * Fixed assets: register, depreciate, dispose.
@@ -153,6 +154,8 @@ class FixedAssetsService {
     }
 
     return sequelize.transaction(async (transaction) => {
+      // The FK alone accepts another tenant's party, which the register then includes.
+      await assertExists(Party, vendorPartyId, 'Vendor', { transaction });
       let paidFrom = null;
       if (acquisitionType === 'PURCHASED') {
         if (!payment?.mode) throw new ValidationError('Say how the asset was paid for (cash or bank)');

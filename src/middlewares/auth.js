@@ -4,14 +4,6 @@ const { UnauthorizedError } = require('../core/AppError');
 const { EmployeeStatus } = require('../utils/constants');
 const { sessionStateCache } = require('../core/sessionStateCache');
 
-/**
- * Paths that only need a valid signature, because they exist to *fix* a stale
- * session. Refusing a token here because its permissions moved on would leave a
- * user unable to refresh out of the very state we are rejecting, and unable to
- * log out of it.
- */
-const VERSION_EXEMPT = new Set(['/refresh', '/logout']);
-
 const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -52,45 +44,61 @@ const authenticate = async (req, res, next) => {
    * account-status check — a user disabled mid-session is now out at once
    * rather than within the hour.
    */
-  if (!VERSION_EXEMPT.has(req.path)) {
-    // Express 4 does not catch a rejected promise from middleware, so the
-    // database call is wrapped rather than left to surface as an unhandled
-    // rejection and a hung request.
-    try {
-      // Held for a few seconds and dropped the instant this process changes
-      // it — see core/sessionStateCache.js for why that is still immediate.
-      let current = sessionStateCache.get(decoded.userId);
-      if (!current) {
-        const { User } = require('../api/users/user.model');
-        const row = await User.unscoped().findByPk(decoded.userId, {
-          attributes: ['id', 'permissionsVersion', 'status'],
-        });
-        current = row ? { permissionsVersion: row.permissionsVersion, status: row.status } : null;
-        if (current) sessionStateCache.set(decoded.userId, current);
-      }
-
-      if (!current) return next(new UnauthorizedError('Invalid or expired token'));
-
-      if ([EmployeeStatus.INACTIVE, EmployeeStatus.TERMINATED].includes(current.status)) {
-        return next(new UnauthorizedError('This account is no longer active'));
-      }
-
-      // A token minted before the last change to this user's access.
-      // Deliberately the same shape of error as an expired token: the client
-      // already knows how to refresh out of that, and refreshing re-resolves
-      // permissions from the live rows.
-      if ((decoded.permissionsVersion ?? 0) < current.permissionsVersion) {
-        return next(new UnauthorizedError('Your access has changed — please sign in again'));
-      }
-    } catch (error) {
-      return next(error);
+  // There used to be a path-based exemption here for '/refresh' and '/logout'.
+  // Those routes never run this middleware, and `req.path` is relative to
+  // whichever router is matching, so the exemption applied to any '/refresh' or
+  // '/logout' in *every* router — `GET /api/v1/users/refresh` skipped the status
+  // and version check. Every authenticated request is now checked.
+  //
+  // Express 4 does not catch a rejected promise from middleware, so the
+  // database call is wrapped rather than left to surface as an unhandled
+  // rejection and a hung request.
+  try {
+    // Held for a few seconds and dropped the instant this process changes
+    // it — see core/sessionStateCache.js for why that is still immediate.
+    let current = sessionStateCache.get(decoded.userId);
+    if (!current) {
+      const { User } = require('../api/users/user.model');
+      const { Tenant } = require('../api/organization/tenant.model');
+      const row = await User.unscoped().findByPk(decoded.userId, {
+        attributes: ['id', 'permissionsVersion', 'status', 'tenantId'],
+      });
+      // A suspended company's users are out mid-session, not just at the next
+      // login. Cached with the rest, so it costs a read per cache miss only.
+      const tenant = row ? await Tenant.findByPk(row.tenantId, { attributes: ['id', 'status'] }) : null;
+      current = row
+        ? {
+            permissionsVersion: row.permissionsVersion,
+            status: row.status,
+            tenantBlocked: !tenant || ['inactive', 'suspended'].includes(tenant.status),
+          }
+        : null;
+      if (current) sessionStateCache.set(decoded.userId, current);
     }
+
+    if (!current) return next(new UnauthorizedError('Invalid or expired token'));
+
+    if (current.tenantBlocked) {
+      return next(new UnauthorizedError('This account is no longer active'));
+    }
+
+    if ([EmployeeStatus.INACTIVE, EmployeeStatus.TERMINATED].includes(current.status)) {
+      return next(new UnauthorizedError('This account is no longer active'));
+    }
+
+    // A token minted before the last change to this user's access.
+    // Deliberately the same shape of error as an expired token: the client
+    // already knows how to refresh out of that, and refreshing re-resolves
+    // permissions from the live rows.
+    if ((decoded.permissionsVersion ?? 0) < current.permissionsVersion) {
+      return next(new UnauthorizedError('Your access has changed — please sign in again'));
+    }
+  } catch (error) {
+    return next(error);
   }
 
   req.user = decoded;
-  // Only a fully checked token is remembered — exempt paths skip the version
-  // check, so they must not let a later router skip it too.
-  if (!VERSION_EXEMPT.has(req.path)) req.authenticatedToken = token;
+  req.authenticatedToken = token;
   next();
 };
 

@@ -6,6 +6,11 @@ const { Factory } = require('../factory/factory.model');
 const { StockLedgerService } = require('../inventory/stockLedger.service');
 const { LedgerService } = require('../ledger/ledger.service');
 const { ValidationError } = require('../../core/AppError');
+const { z } = require('zod');
+const { isIsoDate, MAX_STRING } = require('../../utils/zodFields');
+// The same pattern the party form is held to — an imported party files GST
+// returns exactly like a typed-in one.
+const { GSTIN_PATTERN } = require('../parties/parties.schema');
 
 /**
  * M29 — data migration and opening balances.
@@ -30,6 +35,51 @@ const REQUIRED = {
 
 const isBlank = (v) => v === undefined || v === null || String(v).trim() === '';
 
+// Dates are taken exactly as YYYY-MM-DD. Date.parse used to accept '01/02/2026'
+// (read as US month-first) and full timestamps, whose first ten characters
+// were then stored — a lot dated a day early, or in the wrong month.
+const cellDate = (v) => String(v).trim();
+const isDateCell = (v) => isIsoDate(cellDate(v));
+
+// Number('Infinity') and 1e30 are numbers, and both used to pass a bare
+// `> 0` test before reaching a BIGINT or NUMERIC column.
+const isWhole = (v) => Number.isSafeInteger(Number(v));
+const isAmount = (v) => Number.isFinite(Number(v));
+
+/** Row-level checks for the optional numeric columns each kind may carry. */
+const NUMERIC_COLUMNS = {
+  products: [
+    { field: 'curingDays', ok: (v) => isWhole(v) && Number(v) >= 0, message: 'curingDays must be a whole number of days, zero or more' },
+    { field: 'standardCostPaise', ok: (v) => isWhole(v) && Number(v) >= 0, message: 'standardCostPaise must be a whole number of paise, zero or more (BR-17)' },
+    { field: 'reorderLevel', ok: (v) => isAmount(v) && Number(v) >= 0, message: 'reorderLevel must be a number, zero or more' },
+  ],
+  parties: [
+    { field: 'creditLimitPaise', ok: (v) => isWhole(v) && Number(v) >= 0, message: 'creditLimitPaise must be a whole number of paise, zero or more (BR-17)' },
+    { field: 'creditAgeingDays', ok: (v) => isWhole(v) && Number(v) >= 0, message: 'creditAgeingDays must be a whole number of days, zero or more' },
+  ],
+  openingStock: [
+    { field: 'curingDays', ok: (v) => isWhole(v) && Number(v) >= 0, message: 'curingDays must be a whole number of days, zero or more' },
+  ],
+};
+
+const EMAIL = z.string().email();
+
+/**
+ * Text cells the party form validates and the import used to store as given:
+ * a GSTIN of 'BAD' sat on the party until GSTR-1 was rejected, and an email
+ * of 'n/a' until the first document was sent to it. Normalised the way the
+ * party schema normalises them (trimmed; GSTIN upper-cased) before the check,
+ * and importParties stores the same normalised value.
+ */
+const cleanGstin = (v) => String(v).trim().toUpperCase();
+const cleanEmail = (v) => String(v).trim();
+const TEXT_FORMATS = {
+  parties: [
+    { field: 'gstin', ok: (v) => GSTIN_PATTERN.test(cleanGstin(v)), message: 'gstin must be 15 characters, e.g. 21ABCDE1234F1Z5' },
+    { field: 'email', ok: (v) => EMAIL.safeParse(cleanEmail(v)).success, message: 'email must be a valid email address' },
+  ],
+};
+
 class MigrationService {
   /** Shape/type checks that don't need the database. */
   static validateRows(kind, rows) {
@@ -44,16 +94,30 @@ class MigrationService {
         if (isBlank(row[field])) errors.push({ row: rowNumber, field, message: `${field} is required` });
       }
 
-      if (kind === 'openingStock') {
-        if (!isBlank(row.quantity) && !(Number(row.quantity) > 0)) {
-          errors.push({ row: rowNumber, field: 'quantity', message: 'quantity must be greater than zero' });
+      // Every column lands in a VARCHAR(255) (or is a number); an over-long
+      // cell used to surface as a database error for the whole file instead of
+      // a row to fix.
+      for (const [field, value] of Object.entries(row || {})) {
+        if (typeof value === 'string' && value.length > MAX_STRING) {
+          errors.push({ row: rowNumber, field, message: `${field} must be at most ${MAX_STRING} characters` });
         }
-        if (!isBlank(row.productionDate) && Number.isNaN(Date.parse(row.productionDate))) {
-          errors.push({ row: rowNumber, field: 'productionDate', message: 'productionDate is not a valid date' });
+      }
+
+      for (const { field, ok, message } of TEXT_FORMATS[kind] || []) {
+        if (!isBlank(row[field]) && !ok(row[field])) errors.push({ row: rowNumber, field, message });
+      }
+
+      if (kind === 'openingStock') {
+        if (!isBlank(row.quantity) && !(isAmount(row.quantity) && Number(row.quantity) > 0)) {
+          errors.push({ row: rowNumber, field: 'quantity', message: 'quantity must be a number greater than zero' });
+        }
+        const validDate = !isBlank(row.productionDate) && isDateCell(row.productionDate);
+        if (!isBlank(row.productionDate) && !validDate) {
+          errors.push({ row: rowNumber, field: 'productionDate', message: 'productionDate must be a date in YYYY-MM-DD format' });
         }
         // The whole point of AC-15: a future date means someone defaulted the
         // column to "today" instead of supplying the real production date.
-        if (!isBlank(row.productionDate) && new Date(row.productionDate) > new Date()) {
+        if (validDate && new Date(cellDate(row.productionDate)) > new Date()) {
           errors.push({
             row: rowNumber, field: 'productionDate',
             message: 'productionDate is in the future — opening stock must carry its ORIGINAL production date, not the import date',
@@ -62,9 +126,17 @@ class MigrationService {
       }
 
       if ((kind === 'openingPartyBalances' || kind === 'openingCash') && !isBlank(row.balancePaise)) {
-        if (!Number.isInteger(Number(row.balancePaise))) {
+        // Negative is meaningful here (we owe them), so only the size is capped.
+        if (!isWhole(row.balancePaise)) {
           errors.push({ row: rowNumber, field: 'balancePaise', message: 'balancePaise must be a whole number of paise (BR-17)' });
         }
+      }
+      if ((kind === 'openingPartyBalances' || kind === 'openingCash') && !isBlank(row.asOfDate) && !isDateCell(row.asOfDate)) {
+        errors.push({ row: rowNumber, field: 'asOfDate', message: 'asOfDate must be a date in YYYY-MM-DD format' });
+      }
+
+      for (const { field, ok, message } of NUMERIC_COLUMNS[kind] || []) {
+        if (!isBlank(row[field]) && !ok(row[field])) errors.push({ row: rowNumber, field, message });
       }
     });
 
@@ -196,9 +268,9 @@ class MigrationService {
       rows.map((row) => ({
         partyType: row.partyType,
         name: row.name,
-        gstin: row.gstin || null,
+        gstin: isBlank(row.gstin) ? null : cleanGstin(row.gstin),
         phone: row.phone || null,
-        email: row.email || null,
+        email: isBlank(row.email) ? null : cleanEmail(row.email),
         state: row.state || null,
         creditLimitPaise: Number(row.creditLimitPaise || 0),
         creditAgeingDays: Number(row.creditAgeingDays || 0),
@@ -233,7 +305,7 @@ class MigrationService {
         originType: 'PURCHASE',
         originId: factory.id,
         // NOT new Date() — the supplied original production date.
-        originDate: String(row.productionDate).slice(0, 10),
+        originDate: cellDate(row.productionDate),
         curingDaysOverride: Number(row.curingDays ?? product.curingDays ?? 0),
         quantity: Number(row.quantity),
         transaction,
@@ -280,7 +352,7 @@ class MigrationService {
 
       await LedgerService.postJournal({
         factoryId: factory.id,
-        entryDate: row.asOfDate || new Date().toISOString().slice(0, 10),
+        entryDate: isBlank(row.asOfDate) ? new Date().toISOString().slice(0, 10) : cellDate(row.asOfDate),
         referenceType: 'OpeningBalance',
         referenceId: party.id,
         narration: `Opening balance for ${party.name}`,
@@ -313,7 +385,7 @@ class MigrationService {
 
       await LedgerService.postJournal({
         factoryId: factory.id,
-        entryDate: row.asOfDate || new Date().toISOString().slice(0, 10),
+        entryDate: isBlank(row.asOfDate) ? new Date().toISOString().slice(0, 10) : cellDate(row.asOfDate),
         referenceType: 'OpeningBalance',
         referenceId: factory.id,
         narration: `Opening ${accountKey.toLowerCase()} balance at ${factory.code}`,

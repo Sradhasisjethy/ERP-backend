@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../../utils/pagination');
 const { Office } = require('../../organization/office.model');
 const { Department } = require('../../organization/department.model');
 const { Organization } = require('../../organization/organization.model');
@@ -64,7 +65,7 @@ const offices = {
       where: {
         ...(query.status ? { status: query.status } : {}),
         ...(query.organizationId ? { organizationId: query.organizationId } : {}),
-        ...(query.search ? { [Op.or]: [{ name: { [Op.iLike]: `%${query.search}%` } }, { code: { [Op.iLike]: `%${query.search}%` } }] } : {}),
+        ...(query.search ? { [Op.or]: [{ name: { [Op.iLike]: containsPattern(query.search) } }, { code: { [Op.iLike]: containsPattern(query.search) } }] } : {}),
       },
       include: [{ model: Organization, attributes: ['id', 'code'] }],
       order: [['code', 'ASC']],
@@ -113,7 +114,7 @@ const departments = {
         ...(query.status ? { status: query.status } : {}),
         ...(query.organizationId ? { organizationId: query.organizationId } : {}),
         ...(query.officeId ? { officeId: query.officeId } : {}),
-        ...(query.search ? { [Op.or]: [{ name: { [Op.iLike]: `%${query.search}%` } }, { code: { [Op.iLike]: `%${query.search}%` } }] } : {}),
+        ...(query.search ? { [Op.or]: [{ name: { [Op.iLike]: containsPattern(query.search) } }, { code: { [Op.iLike]: containsPattern(query.search) } }] } : {}),
       },
       include: [
         { model: Office, attributes: ['id', 'code'] },

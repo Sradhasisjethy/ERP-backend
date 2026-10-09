@@ -17,6 +17,8 @@ invoicingRouter.get('/:id', authorize('INVOICE_READ'), getInvoice);
 // Safe to register after '/:id': that route matches a single path segment, so
 // it never captures '/:id/print'. Same shape as the challan print route.
 invoicingRouter.get('/:id/print', authorize('INVOICE_READ'), printInvoice);
-invoicingRouter.put('/:id/cancel', authorize('INVOICE_MODIFY'), validate(cancelInvoiceSchema), cancelInvoice);
+// A named grant, not INVOICE_MODIFY: reversing a posted invoice unwinds its
+// stock and ledger postings, which edit rights should not carry with them.
+invoicingRouter.put('/:id/cancel', authorize('INVOICE_CANCEL'), validate(cancelInvoiceSchema), cancelInvoice);
 
 module.exports = { invoicingRouter };

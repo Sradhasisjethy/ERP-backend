@@ -1,8 +1,25 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../utils/pagination');
 const { Factory } = require('./factory.model');
 const { FinancialYear } = require('./financialYear.model');
 const { UserFactory } = require('./userFactory.model');
 const { NotFoundError, ConflictError, ValidationError } = require('../../core/AppError');
+const { getTenantId } = require('../../core/tenantContext');
+
+/**
+ * The tenant whose "current year" flag a rollover may clear.
+ *
+ * `FinancialYear.update(..., { where: { isCurrent: true } })` named no tenant,
+ * so one tenant setting its current year soft-closed every other tenant's.
+ * The bulk-update hook in BaseModel now adds the request's tenant, but this is
+ * also reached from scripts with no request context, so the tenant is named
+ * here explicitly and the write refuses to run without one.
+ */
+const fyTenantId = async (fy) => {
+  const tenantId = getTenantId() || (fy && (await FinancialYear.unscoped().findByPk(fy.id, { attributes: ['tenantId'] }))?.tenantId);
+  if (!tenantId) throw new ValidationError('Financial year change has no tenant context');
+  return tenantId;
+};
 
 const calculate12MonthEndDate = (startDateStr) => {
   const [year, month, day] = startDateStr.split('-').map(Number);
@@ -52,7 +69,7 @@ class FactoryService {
     const offset = (page - 1) * limit;
     const where = {};
     if (organizationId) where.organizationId = organizationId;
-    if (search) where.name = { [Op.iLike]: `%${search}%` };
+    if (search) where.name = { [Op.iLike]: containsPattern(search) };
     if (status) where.status = status;
 
     return Factory.findAndCountAll({ where, limit, offset, order: [['name', 'ASC']] });
@@ -97,8 +114,8 @@ class FactoryService {
     const startDate = String(data.startDate).trim();
     if (!startDate) throw new ValidationError('Start date is required');
 
-    const { getTenantId } = require('../../core/tenantContext');
-    const tenantId = data.tenantId || getTenantId();
+    const tenantId = getTenantId() || data.tenantId;
+    if (!tenantId) throw new ValidationError('Financial year change has no tenant context');
 
     // Enforce 12-month automated boundary
     const endDate = calculate12MonthEndDate(startDate);
@@ -107,7 +124,7 @@ class FactoryService {
 
     const fyData = {
       ...data,
-      ...(tenantId ? { tenantId } : {}),
+      tenantId,
       startDate,
       endDate,
       status,
@@ -116,7 +133,7 @@ class FactoryService {
 
     if (isCurrent) {
       return FinancialYear.sequelize.transaction(async (transaction) => {
-        await FinancialYear.update({ isCurrent: false, status: 'SOFT_CLOSED' }, { where: { isCurrent: true }, transaction });
+        await FinancialYear.update({ isCurrent: false, status: 'SOFT_CLOSED' }, { where: { isCurrent: true, tenantId }, transaction });
         return FinancialYear.create(fyData, { transaction });
       });
     }
@@ -133,6 +150,10 @@ class FactoryService {
     }
 
     const updates = { ...data };
+    // The end date is always derived from the start (the 12-month rule); a
+    // caller-supplied one is ignored rather than trusted.
+    delete updates.endDate;
+    delete updates.tenantId;
     if (updates.startDate) {
       updates.endDate = calculate12MonthEndDate(updates.startDate);
     }
@@ -142,8 +163,9 @@ class FactoryService {
     }
 
     if (updates.isCurrent) {
+      const tenantId = await fyTenantId(fy);
       return FinancialYear.sequelize.transaction(async (transaction) => {
-        await FinancialYear.update({ isCurrent: false, status: 'SOFT_CLOSED' }, { where: { isCurrent: true }, transaction });
+        await FinancialYear.update({ isCurrent: false, status: 'SOFT_CLOSED' }, { where: { isCurrent: true, tenantId }, transaction });
         await fy.update({ ...updates, status: 'ACTIVE', isCurrent: true }, { transaction });
       });
     }
@@ -166,10 +188,11 @@ class FactoryService {
     }
 
     if (targetStatus === 'ACTIVE') {
+      const tenantId = await fyTenantId(fy);
       await FinancialYear.sequelize.transaction(async (transaction) => {
         await FinancialYear.update(
           { isCurrent: false, status: 'SOFT_CLOSED' },
-          { where: { isCurrent: true, id: { [Op.ne]: fy.id } }, transaction }
+          { where: { isCurrent: true, tenantId, id: { [Op.ne]: fy.id } }, transaction }
         );
         await fy.update({ status: 'ACTIVE', isCurrent: true }, { transaction });
       });
@@ -318,6 +341,10 @@ class FactoryService {
 
   static async assignUser(factoryId, userId) {
     await this.getFactory(factoryId);
+    // UserFactory rows take the tenant from context, not from the user, so a
+    // foreign user id would otherwise be linked into this tenant's plant.
+    const { User } = require('../users/user.model');
+    if (!(await User.findByPk(userId, { attributes: ['id'] }))) throw new NotFoundError('User not found');
     const [assignment, created] = await UserFactory.findOrCreate({
       where: { factoryId, userId },
       defaults: { factoryId, userId },

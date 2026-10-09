@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { isoDate, MAX_STRING, MAX_TEXT, MAX_SEARCH, MAX_LINES, MAX_QTY, MAX_PAISE } = require('../../utils/zodFields');
 
 /**
  * Deliberately the same shape as payments.schema.js modeBody — a counter
@@ -8,11 +9,11 @@ const { z } = require('zod');
  */
 const modeBody = z.object({
   mode: z.enum(['CASH', 'UPI', 'BANK', 'CHEQUE']),
-  amountPaise: z.coerce.number().int().positive(),
-  reference: z.string().optional(),
-  chequeNumber: z.string().optional(),
-  chequeDate: z.string().optional(),
-  bankName: z.string().optional(),
+  amountPaise: z.coerce.number().int().positive().finite().max(MAX_PAISE),
+  reference: z.string().max(MAX_STRING).optional(),
+  chequeNumber: z.string().max(MAX_STRING).optional(),
+  chequeDate: isoDate.optional(),
+  bankName: z.string().max(MAX_STRING).optional(),
   // Which of the business's own cash/bank accounts the money went to or came
   // from. Omit for the system Cash-in-Hand (CASH) or Bank Account (others).
   accountId: z.string().uuid().optional(),
@@ -28,11 +29,11 @@ const modeBody = z.object({
  */
 const customerFields = z.object({
   partyId: z.string().uuid().optional(),
-  name: z.string().min(1).optional(),
-  phone: z.string().min(1).optional(),
-  state: z.string().min(1).optional(),
+  name: z.string().min(1).max(MAX_STRING).optional(),
+  phone: z.string().min(1).max(MAX_STRING).optional(),
+  state: z.string().min(1).max(MAX_STRING).optional(),
   gstin: z.string().min(15).max(15).optional(),
-  address: z.string().optional(),
+  address: z.string().max(MAX_TEXT).optional(),
 });
 
 /** Naming the buyer is only required at the point of actually selling to them. */
@@ -51,42 +52,42 @@ const customerBody = customerFields.refine((c) => c.partyId || (c.name && c.name
  */
 const accessoryOverrideBody = z.object({
   componentProductId: z.string().uuid(),
-  qty: z.coerce.number().positive().optional(),
-  ratePaise: z.coerce.number().int().min(0).optional(),
-  discountPercent: z.coerce.number().min(0).max(100).optional(),
+  qty: z.coerce.number().positive().finite().max(MAX_QTY).optional(),
+  ratePaise: z.coerce.number().int().min(0).finite().max(MAX_PAISE).optional(),
+  discountPercent: z.coerce.number().min(0).max(100).finite().optional(),
   removed: z.boolean().optional(),
-  reasonCode: z.string().min(1).optional(),
-  reasonNote: z.string().optional(),
+  reasonCode: z.string().min(1).max(50).optional(),
+  reasonNote: z.string().max(MAX_TEXT).optional(),
 });
 
 const lineBody = z.object({
   productId: z.string().uuid(),
-  accessoryOverrides: z.array(accessoryOverrideBody).optional(),
+  accessoryOverrides: z.array(accessoryOverrideBody).max(MAX_LINES).optional(),
   // Comes off the taxable value before GST is charged (s.15(3)(a) CGST Act).
   // Percent, matching price_list_items.discountPercent — the only other
   // discount this schema carries.
-  discountPercent: z.coerce.number().min(0).max(100).optional(),
-  quantity: z.coerce.number().positive(),
+  discountPercent: z.coerce.number().min(0).max(100).finite().optional(),
+  quantity: z.coerce.number().positive().finite().max(MAX_QTY),
   // Omit to price from the RETAIL price list, then the product's selling price.
-  ratePaise: z.coerce.number().int().min(0).optional(),
+  ratePaise: z.coerce.number().int().min(0).finite().max(MAX_PAISE).optional(),
   // BR-03: selling from a named lot instead of FIFO always needs a reason.
   overrideLotId: z.string().uuid().optional(),
-  overrideLotReason: z.string().min(1).optional(),
+  overrideLotReason: z.string().min(1).max(MAX_TEXT).optional(),
 });
 
 const createCounterSaleSchema = z.object({
   body: z.object({
     factoryId: z.string().uuid(),
-    invoiceDate: z.string(),
+    invoiceDate: isoDate,
     customer: customerBody,
-    lines: z.array(lineBody).min(1),
+    lines: z.array(lineBody).min(1).max(MAX_LINES),
     // Present when the goods are being sent out rather than carried away. The
     // tax invoice is the document that travels with them, so this is transport
     // detail on the invoice, not a separate delivery challan.
     delivery: z
       .object({
-        vehicleNumber: z.string().min(1),
-        driverName: z.string().optional(),
+        vehicleNumber: z.string().min(1).max(32),
+        driverName: z.string().max(MAX_STRING).optional(),
       })
       .optional()
       .nullable(),
@@ -94,7 +95,7 @@ const createCounterSaleSchema = z.object({
     // collected later through the normal receipts screen.
     payment: z
       .object({
-        modes: z.array(modeBody).min(1),
+        modes: z.array(modeBody).min(1).max(MAX_LINES),
       })
       .optional()
       .nullable(),
@@ -110,10 +111,10 @@ const quoteCounterSaleSchema = z.object({
   body: z.object({
     factoryId: z.string().uuid(),
     customer: customerFields.optional(),
-    lines: z.array(lineBody).min(1),
+    lines: z.array(lineBody).min(1).max(MAX_LINES),
     // Bundle rules are versioned by date; a quote resolves them on the day the
     // sale will carry, not on the server's today.
-    invoiceDate: z.string().optional(),
+    invoiceDate: isoDate.optional(),
   }),
 });
 
@@ -122,18 +123,18 @@ const quoteCounterSaleSchema = z.object({
 // schemas above are wrapped, because validate(schema) with no source parses
 // { body, query, params } together.
 const listQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
+  page: z.coerce.number().min(1).finite().default(1),
+  limit: z.coerce.number().min(1).max(100).finite().default(10),
   factoryId: z.string().uuid().optional(),
   customerPartyId: z.string().uuid().optional(),
   status: z.enum(['POSTED', 'CANCELLED']).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
 });
 
 /** Cancelling reverses money and stock, so it says why, like every other cancellation. */
 const cancelCounterSaleSchema = z.object({
   body: z.object({
-    reason: z.string().trim().min(3, 'Give a reason of at least 3 characters'),
+    reason: z.string().trim().min(3, 'Give a reason of at least 3 characters').max(MAX_TEXT),
   }),
 });
 

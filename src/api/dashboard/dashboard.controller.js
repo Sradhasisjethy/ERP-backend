@@ -4,6 +4,17 @@ const { sendSuccess } = require('../../utils/response');
 const { hasViewRates } = require('../../utils/fieldMasking');
 const { getAllowedFactoryIds } = require('../../core/factoryAccess');
 const { hasPermission } = require('../../middlewares/authorize');
+const { NotificationsService } = require('../notifications/notifications.service');
+
+/** The response with the caller's own unread-alert count laid over it. */
+const withMyUnread = async (req, data) => {
+  const unreadAlerts = await NotificationsService.unreadCount({
+    userId: req.user.userId,
+    allowedFactoryIds: await getAllowedFactoryIds(req),
+    can: (permission) => hasPermission(req.user, permission),
+  });
+  return { ...data, operational: { ...data.operational, unreadAlerts } };
+};
 
 /**
  * The assembled dashboard, remembered for a short while.
@@ -60,7 +71,7 @@ const getStats = asyncHandler(async (req, res) => {
   const hit = cache.get(key);
   if (hit && hit.expiresAt > Date.now()) {
     res.setHeader('X-Cache', 'HIT');
-    return sendSuccess(res, hit.data, 'Dashboard retrieved successfully');
+    return sendSuccess(res, await withMyUnread(req, hit.data), 'Dashboard retrieved successfully');
   }
 
   const data = await DashboardService.getDashboard({
@@ -70,7 +81,7 @@ const getStats = asyncHandler(async (req, res) => {
   });
   remember(key, data);
   res.setHeader('X-Cache', 'MISS');
-  sendSuccess(res, data, 'Dashboard retrieved successfully');
+  sendSuccess(res, await withMyUnread(req, data), 'Dashboard retrieved successfully');
 });
 
 /** For tests, and for anything that must see a fresh dashboard immediately. */

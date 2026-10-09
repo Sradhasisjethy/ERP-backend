@@ -57,7 +57,7 @@ for exports and imports.
 | --- | --- |
 | Runtime | Node **v22.17.0**, Express **4.18**, Sequelize **6.35**, Postgres driver `pg` 8.11 |
 | Process model | **One process, one core.** `src/server.js` → `app.listen`. The nightly scheduler (`src/jobs/scheduler.js`) runs **inside** the API process on a `setInterval`. |
-| Database | **PostgreSQL 18.6** on Ubuntu/aarch64 at `18.61.3.32` — a self-managed VM, not RDS (Assumption from the version string; the repo does not say). `max_connections = 100`, `shared_buffers = 128MB` (Postgres default), `work_mem = 4MB`, `statement_timeout = 0`, `idle_in_transaction_session_timeout = 0`, no extensions beyond `plpgsql`. Database size **20 MB**. |
+| Database | **PostgreSQL 18.6** on Ubuntu/aarch64 at a public IPv4 address (see `DB_HOST`; not recorded here) — a self-managed VM, not RDS (Assumption from the version string; the repo does not say). `max_connections = 100`, `shared_buffers = 128MB` (Postgres default), `work_mem = 4MB`, `statement_timeout = 0`, `idle_in_transaction_session_timeout = 0`, no extensions beyond `plpgsql`. Database size **20 MB**. |
 | Multi-tenancy | Row-level `tenantId` on every table, injected through `cls-hooked` + `BaseScopedModel` hooks. Every scoped query carries `WHERE tenantId = …`. |
 | Auth | JWT in cookie/bearer. **Every authenticated request does one `SELECT` on `employees`** (`src/middlewares/auth.js:53`) to check `permissionsVersion` and `status`. |
 | Rate limiting | `express-rate-limit` with its default **in-memory store**; off unless `RATE_LIMIT_ENABLED=true`. |

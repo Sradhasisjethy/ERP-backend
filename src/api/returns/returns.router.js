@@ -18,21 +18,23 @@ returnsRouter.get('/returnable', authorize('RETURN_READ'), validate(schema.retur
 returnsRouter.get('/sales-returns', authorize('RETURN_READ'), validate(schema.listQuerySchema, 'query'), controller.listSalesReturns);
 returnsRouter.post('/sales-returns', authorize('RETURN_CREATE'), validate(schema.createSalesReturnSchema), controller.createSalesReturn);
 returnsRouter.get('/sales-returns/:id', authorize('RETURN_READ'), controller.getSalesReturn);
-returnsRouter.put('/sales-returns/:id/cancel', authorize('RETURN_MODIFY'), validate(schema.cancelSchema), controller.cancelSalesReturn);
+// Cancels below are named grants (<DOC>_CANCEL): reversing a posted return or
+// note unwinds stock and ledger postings, which *_MODIFY does not carry.
+returnsRouter.put('/sales-returns/:id/cancel', authorize('RETURN_CANCEL'), validate(schema.cancelSchema), controller.cancelSalesReturn);
 
 returnsRouter.get('/purchase-returns', authorize('RETURN_READ'), validate(schema.listQuerySchema, 'query'), controller.listPurchaseReturns);
 returnsRouter.post('/purchase-returns', authorize('RETURN_CREATE'), validate(schema.createPurchaseReturnSchema), controller.createPurchaseReturn);
 returnsRouter.get('/purchase-returns/:id', authorize('RETURN_READ'), controller.getPurchaseReturn);
-returnsRouter.put('/purchase-returns/:id/cancel', authorize('RETURN_MODIFY'), validate(schema.cancelSchema), controller.cancelPurchaseReturn);
+returnsRouter.put('/purchase-returns/:id/cancel', authorize('RETURN_CANCEL'), validate(schema.cancelSchema), controller.cancelPurchaseReturn);
 
 returnsRouter.get('/credit-notes', authorize('FINANCE_ADJUSTMENT_READ'), validate(schema.listQuerySchema, 'query'), controller.listCreditNotes);
 returnsRouter.post('/credit-notes', authorize('FINANCE_ADJUSTMENT_CREATE'), validate(schema.createCreditNoteSchema), controller.createCreditNote);
 returnsRouter.get('/credit-notes/:id', authorize('FINANCE_ADJUSTMENT_READ'), controller.getCreditNote);
-returnsRouter.put('/credit-notes/:id/cancel', authorize('FINANCE_ADJUSTMENT_MODIFY'), validate(schema.cancelSchema), controller.cancelCreditNote);
+returnsRouter.put('/credit-notes/:id/cancel', authorize('FINANCE_ADJUSTMENT_CANCEL'), validate(schema.cancelSchema), controller.cancelCreditNote);
 
 returnsRouter.get('/debit-notes', authorize('FINANCE_ADJUSTMENT_READ'), validate(schema.listQuerySchema, 'query'), controller.listDebitNotes);
 returnsRouter.post('/debit-notes', authorize('FINANCE_ADJUSTMENT_CREATE'), validate(schema.createDebitNoteSchema), controller.createDebitNote);
 returnsRouter.get('/debit-notes/:id', authorize('FINANCE_ADJUSTMENT_READ'), controller.getDebitNote);
-returnsRouter.put('/debit-notes/:id/cancel', authorize('FINANCE_ADJUSTMENT_MODIFY'), validate(schema.cancelSchema), controller.cancelDebitNote);
+returnsRouter.put('/debit-notes/:id/cancel', authorize('FINANCE_ADJUSTMENT_CANCEL'), validate(schema.cancelSchema), controller.cancelDebitNote);
 
 module.exports = { returnsRouter };

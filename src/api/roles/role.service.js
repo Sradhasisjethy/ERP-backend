@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../utils/pagination');
 const { AdGroup } = require('./role.model');
 const { AdGroupMember } = require('./adGroupMember.model');
 const { User } = require('../users/user.model');
@@ -16,6 +17,33 @@ const BYPASS_ROLES = [SystemRoles.PLATFORM_ADMIN, SystemRoles.TENANT_OWNER];
 
 class RoleService {
   /** A bypass system role, or a role carrying the `*` wildcard. */
+  /**
+   * Codes that administer other people's access or the tenant itself. Holding
+   * one the actor lacks — or holding `*` — makes a role or a user out-rank them.
+   */
+  static ADMIN_CODES = [
+    'ROLE_CREATE', 'ROLE_MODIFY', 'ROLE_DELETE',
+    'EMPLOYEE_CREATE', 'EMPLOYEE_MODIFY', 'EMPLOYEE_DELETE',
+    'SETTINGS_CREATE', 'SETTINGS_MODIFY', 'SETTINGS_DELETE',
+    'FACTORY_CREATE', 'FACTORY_MODIFY', 'FACTORY_DELETE',
+    'MIGRATION_RUN',
+  ];
+
+  /**
+   * Refuses when `permissions` out-rank the actor. Unlike assertGrantable this
+   * ignores ordinary operational codes, so an administrator can still manage
+   * roles and staff whose day-to-day grants they do not hold themselves — but
+   * cannot weaken, strip or take over anyone more powerful.
+   */
+  static assertNotOutranked(actor, permissions, message = 'You cannot change access that out-ranks your own') {
+    if (this.hasFullAccess(actor)) return;
+    const held = new Set(expandPermissions(actor?.permissions || []));
+    const target = expandPermissions(permissions || []);
+    if (target.includes(WILDCARD) || this.ADMIN_CODES.some((code) => target.includes(code) && !held.has(code))) {
+      throw new ForbiddenError(message);
+    }
+  }
+
   static hasFullAccess(actor) {
     return BYPASS_ROLES.includes(actor?.role) || (actor?.permissions || []).includes(WILDCARD);
   }
@@ -60,7 +88,7 @@ class RoleService {
   static async listRoles(page, limit, search, status) {
     const offset = (page - 1) * limit;
     const where = {};
-    if (search) where.name = { [Op.iLike]: `%${search}%` };
+    if (search) where.name = { [Op.iLike]: containsPattern(search) };
     if (status) where.status = status;
 
     return AdGroup.findAndCountAll({ where, limit, offset });
@@ -86,17 +114,55 @@ class RoleService {
 
   static async updateRole(id, data, actor) {
     const role = await this.getRole(id);
+    const current = role.permissions || [];
+    const statusChanging = data.status !== undefined && data.status !== role.status;
 
-    // A partial update that doesn't mention permissions must leave them alone —
-    // normalising `undefined` would blank them out.
-    if (data.permissions === undefined) return role.update(data);
+    // Any edit to a role that out-ranks the actor — deactivating it, renaming
+    // it, or removing its grants — is a way to disable stronger administrators.
+    this.assertNotOutranked(actor, current);
 
-    this.assertGrantable(actor, data.permissions, role.permissions || []);
-    const updated = await role.update({ ...data, permissions: normalizePermissions(data.permissions) });
+    // Re-activating a role hands its whole grant back to every member, which is
+    // the same act as granting it. This path used to return before any check,
+    // so ROLE_MODIFY could revive a dormant role the actor belonged to.
+    if (statusChanging && data.status === 'active') {
+      this.assertGrantable(actor, current);
+    }
+
+    // Deactivating a role, or emptying the wildcard out of it, must not leave
+    // the tenant with no administrator — the same rule deleteRole enforces.
+    const losesWildcard =
+      current.includes(WILDCARD) &&
+      ((statusChanging && data.status !== 'active') ||
+        (data.permissions !== undefined && !normalizePermissions(data.permissions).includes(WILDCARD)));
+    if (losesWildcard) await this.assertAnotherWildcardRole(role.id);
+
+    let updated;
+    if (data.permissions === undefined) {
+      // A partial update that doesn't mention permissions must leave them alone —
+      // normalising `undefined` would blank them out.
+      updated = await role.update(data);
+    } else {
+      this.assertGrantable(actor, data.permissions, current);
+      updated = await role.update({ ...data, permissions: normalizePermissions(data.permissions) });
+    }
+
     // Everyone holding this role is now carrying a token that describes the old
-    // grant, so retire those tokens rather than wait out the hour.
-    await bumpRoleMembers(role.id);
+    // grant, so retire those tokens rather than wait out the hour. A status
+    // change alters access exactly as much as a permissions edit does.
+    if (data.permissions !== undefined || statusChanging) await bumpRoleMembers(role.id);
     return updated;
+  }
+
+  /** Refuses unless some other active role still carries the wildcard. */
+  static async assertAnotherWildcardRole(roleId) {
+    const remaining = await AdGroup.count({
+      where: { id: { [Op.ne]: roleId }, status: 'active', permissions: { [Op.contains]: [WILDCARD] } },
+    });
+    if (remaining === 0) {
+      throw new ForbiddenError(
+        'This is the last role with full access. Removing it would leave the tenant with no administrator — create another first.'
+      );
+    }
   }
 
   /**
@@ -210,6 +276,10 @@ class RoleService {
   static async assignMember(adGroupId, employeeId, actor) {
     const role = await this.getRole(adGroupId);
     this.assertGrantable(actor, role.permissions || []);
+    // Tenant-scoped lookup: an id from another tenant is "not found" here. Without
+    // it a role in this tenant could be handed to someone else's employee.
+    const employee = await User.findByPk(employeeId, { attributes: ['id'] });
+    if (!employee) throw new NotFoundError('Employee not found');
     const [member] = await AdGroupMember.findOrCreate({
       where: { adGroupId: role.id, employeeId },
       defaults: { adGroupId: role.id, employeeId },
@@ -218,9 +288,25 @@ class RoleService {
     return member;
   }
 
-  static async removeMember(adGroupId, employeeId) {
+  /**
+   * Taking someone out of a role is checked like putting them in: you may not
+   * strip a role that out-ranks you (otherwise ROLE_DELETE removes stronger
+   * administrators), and the last member of the last full-access role stays.
+   */
+  static async removeMember(adGroupId, employeeId, actor) {
+    const role = await this.getRole(adGroupId);
+    this.assertNotOutranked(actor, role.permissions || []);
     const member = await AdGroupMember.findOne({ where: { adGroupId, employeeId } });
     if (!member) throw new NotFoundError('Member not found in role');
+    if ((role.permissions || []).includes(WILDCARD) && role.status === 'active') {
+      const others = await AdGroupMember.count({
+        where: { id: { [Op.ne]: member.id } },
+        include: [{ model: AdGroup, required: true, where: { status: 'active', permissions: { [Op.contains]: [WILDCARD] } } }],
+      });
+      if (others === 0) {
+        throw new ForbiddenError('This is the last member with full access. Add another administrator first.');
+      }
+    }
     await member.destroy();
     // The point of removing someone is that they lose the access now.
     await bumpUser(employeeId);

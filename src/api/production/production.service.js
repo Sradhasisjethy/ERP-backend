@@ -8,6 +8,11 @@ const { ProductionEntry } = require('./productionEntry.model');
 const { MaterialConsumption } = require('./materialConsumption.model');
 const { WastageRecord } = require('./wastageRecord.model');
 const { Product } = require('../products/product.model');
+const { nonMoneyAttributes } = require('../../utils/fieldMasking');
+
+// Identity only. Nothing on these read paths computes with a product's cost or
+// price, and loading them is how a plan or entry list leaked them to the floor.
+const productIs = (as, extra = {}) => ({ model: Product, as, attributes: nonMoneyAttributes(Product), ...extra });
 const { BomService } = require('../products/bom.service');
 const { Factory } = require('../factory/factory.model');
 const { FinancialYear } = require('../factory/financialYear.model');
@@ -87,7 +92,7 @@ class ProductionService {
       where,
       limit,
       offset,
-      include: [{ model: ProductionPlanLine, as: 'lines', include: [{ model: Product, as: 'product' }] }],
+      include: [{ model: ProductionPlanLine, as: 'lines', include: [productIs('product')] }],
       order: [['planDate', 'DESC']],
     });
   }
@@ -98,7 +103,7 @@ class ProductionService {
         {
           model: ProductionPlanLine,
           as: 'lines',
-          include: [{ model: Product, as: 'product', include: [{ model: Uom, as: 'uom' }] }],
+          include: [productIs('product', { include: [{ model: Uom, as: 'uom' }] })],
         },
         {
           model: Factory,
@@ -181,8 +186,8 @@ class ProductionService {
       limit,
       offset,
       include: [
-        { model: Product, as: 'product' },
-        { model: MaterialConsumption, as: 'consumptions', include: [{ model: Product, as: 'rawMaterial' }] },
+        productIs('product'),
+        { model: MaterialConsumption, as: 'consumptions', include: [productIs('rawMaterial')] },
       ],
       order: [['productionDate', 'DESC']],
     });
@@ -191,9 +196,9 @@ class ProductionService {
   static async getEntry(id) {
     const entry = await ProductionEntry.findByPk(id, {
       include: [
-        { model: Product, as: 'product' },
+        productIs('product'),
         { model: StockLot, as: 'lot' },
-        { model: MaterialConsumption, as: 'consumptions', include: [{ model: Product, as: 'rawMaterial' }] },
+        { model: MaterialConsumption, as: 'consumptions', include: [productIs('rawMaterial')] },
       ],
     });
     if (!entry) throw new NotFoundError('Production entry not found');
@@ -465,7 +470,7 @@ class ProductionService {
       limit,
       offset,
       include: [
-        { model: Product, as: 'product' },
+        productIs('product'),
         { model: ProductionPlan, as: 'productionPlan', where: planWhere, required: true },
       ],
       order: [[{ model: ProductionPlan, as: 'productionPlan' }, 'planDate', 'DESC']],
@@ -534,17 +539,25 @@ class ProductionService {
       limit,
       offset,
       include: [
-        { model: Product, as: 'rawMaterial' },
+        productIs('rawMaterial'),
         {
           model: ProductionEntry,
           as: 'productionEntry',
-          include: [{ model: Product, as: 'product' }],
+          include: [productIs('product')],
           where: Object.keys(entryWhere).length ? entryWhere : undefined,
           required: true,
         },
       ],
       order: [['createdAt', 'DESC']],
     });
+  }
+
+  static async getConsumption(id) {
+    const consumption = await MaterialConsumption.findByPk(id, {
+      include: [{ model: ProductionEntry, as: 'productionEntry', attributes: ['id', 'factoryId'] }],
+    });
+    if (!consumption) throw new NotFoundError('Material consumption record not found');
+    return consumption;
   }
 
   /**
@@ -581,10 +594,10 @@ class ProductionService {
       limit,
       offset,
       include: [
-        { model: Product, as: 'rawMaterial' },
+        productIs('rawMaterial'),
         {
           model: ProductionEntry, as: 'productionEntry',
-          include: [{ model: Product, as: 'product' }],
+          include: [productIs('product')],
           where: Object.keys(entryWhere).length ? entryWhere : undefined,
           required: !!Object.keys(entryWhere).length,
         },
@@ -604,7 +617,7 @@ class ProductionService {
       where,
       limit,
       offset,
-      include: [{ model: Product, as: 'product' }, { model: StockLot, as: 'lot' }],
+      include: [productIs('product'), { model: StockLot, as: 'lot' }],
       order: [['recordedDate', 'DESC']],
     });
   }

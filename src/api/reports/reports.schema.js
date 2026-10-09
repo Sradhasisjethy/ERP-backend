@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { REPORT_TYPES } = require('./savedReport.model');
 const { FORMATS } = require('./export');
+const { isoDate: strictIsoDate, MAX_STRING, MAX_SEARCH } = require('../../utils/zodFields');
 
 /**
  * Report request validation.
@@ -15,16 +16,13 @@ const { FORMATS } = require('./export');
  */
 
 const uuid = z.string().uuid().optional();
-const isoDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates must be in YYYY-MM-DD format')
-  .optional();
+const isoDate = strictIsoDate.optional();
 const token = z.string().trim().min(1).max(64).optional();
 
 const reportQuerySchema = z
   .object({
-    page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(200).default(25),
+    page: z.coerce.number().finite().int().min(1).default(1),
+    limit: z.coerce.number().finite().int().min(1).max(200).default(25),
     search: z.string().trim().min(1).max(120).optional(),
     sortBy: z.string().trim().min(1).max(64).optional(),
     sortDir: z.enum(['asc', 'desc', 'ASC', 'DESC']).optional(),
@@ -72,39 +70,86 @@ const reportParamsSchema = z.object({
   report: z.string().trim().min(1).max(60),
 });
 
-// --- Saved reports (unchanged, M40) ----------------------------------------
+// --- Saved reports (M40) ---------------------------------------------------
+
+/**
+ * `params` used to be `z.record(z.any())`: whatever arrived went to the runner
+ * (reports.service.js RUNNERS) and from there into a service call — objects
+ * where ids belong, arrays where dates belong, any key at all. Each report
+ * type now names the params its runner reads, and nothing else is accepted.
+ *
+ * The builder form sends a cleared field as '' (and saved params may hold
+ * null), which the runners have always read as "not given", so both are
+ * treated as absent rather than rejected.
+ */
+const blank = (schema) => z.preprocess((v) => (v === '' || v === null ? undefined : v), schema.optional());
+const P = {
+  factoryId: blank(z.string().uuid()),
+  partyId: blank(z.string().uuid()),
+  fromDate: blank(strictIsoDate),
+  toDate: blank(strictIsoDate),
+  from: blank(strictIsoDate),
+  to: blank(strictIsoDate),
+  deadStockDays: blank(z.coerce.number().finite().int().positive().max(36500)),
+  q: blank(z.string().trim().min(2).max(MAX_SEARCH)),
+  page: blank(z.coerce.number().finite().int().min(1)),
+  limit: blank(z.coerce.number().finite().int().min(1).max(200)),
+  accountKey: blank(z.enum(['CASH', 'BANK'])),
+};
+const pick = (...keys) => z.object(Object.fromEntries(keys.map((k) => [k, P[k]]))).strict();
+
+const PARAMS_BY_TYPE = {
+  STOCK_AGEING: pick('factoryId', 'deadStockDays'),
+  DASHBOARD_KPIS: pick('factoryId', 'fromDate', 'toDate'),
+  COSTING: pick('factoryId'),
+  ALERTS: pick('factoryId'),
+  CANCELLATION_ANALYTICS: pick('factoryId', 'fromDate', 'toDate'),
+  // The direct search endpoint caps at 50; the report runs the same query.
+  DOCUMENT_SEARCH: pick('factoryId', 'q').extend({ limit: blank(z.coerce.number().finite().int().min(1).max(50)) }),
+  TRIAL_BALANCE: pick('factoryId'),
+  PARTY_LEDGER: pick('factoryId', 'partyId', 'page', 'limit'),
+  CASH_BOOK: pick('factoryId', 'from', 'to', 'accountKey'),
+  GSTR1: pick('factoryId', 'fromDate', 'toDate'),
+  GSTR3B: pick('factoryId', 'fromDate', 'toDate'),
+};
+
+// Overrides for a saved report are checked before its type is loaded, so they
+// get the union of every type's keys — still a closed, typed vocabulary.
+const anyReportParams = pick(...Object.keys(P));
+
+/** A body carrying `reportType` + `params`, with params checked against that type. */
+const typedReportBody = (shape = {}) =>
+  z
+    .object({ reportType: z.enum(REPORT_TYPES), params: z.unknown().optional(), ...shape })
+    .transform((body, ctx) => {
+      if (body.params === undefined) return body;
+      const schema = PARAMS_BY_TYPE[body.reportType];
+      const parsed = schema.safeParse(body.params);
+      if (parsed.success) return { ...body, params: parsed.data };
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({ ...issue, path: ['params', ...issue.path], message: `params: ${issue.message}` });
+      }
+      return z.NEVER;
+    });
 
 const createReportSchema = z.object({
-  body: z.object({
-    name: z.string().min(1),
-    reportType: z.enum(REPORT_TYPES),
-    params: z.record(z.any()).optional(),
-  }),
+  body: typedReportBody({ name: z.string().min(1).max(MAX_STRING) }),
 });
 
-const runReportSchema = z.object({
-  body: z.object({
-    reportType: z.enum(REPORT_TYPES),
-    params: z.record(z.any()).optional(),
-  }),
-});
+const runReportSchema = z.object({ body: typedReportBody() });
 
-const runSavedReportSchema = z.object({ body: z.object({ params: z.record(z.any()).optional() }) });
+const runSavedReportSchema = z.object({ body: z.object({ params: anyReportParams.optional() }) });
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10),
-  search: z.string().trim().min(1).optional(),
-  sortBy: z.string().trim().min(1).optional(),
+  page: z.coerce.number().finite().min(1).default(1),
+  limit: z.coerce.number().finite().min(1).max(100).default(10),
+  search: z.string().trim().min(1).max(MAX_SEARCH).optional(),
+  sortBy: z.string().trim().min(1).max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 const exportReportSchema = z.object({
-  body: z.object({
-    reportType: z.enum(REPORT_TYPES),
-    params: z.record(z.any()).optional(),
-    format: z.enum(['csv', 'pdf']).optional(),
-  }),
+  body: typedReportBody({ format: z.enum(['csv', 'pdf']).optional() }),
 });
 
 /**
@@ -115,6 +160,7 @@ const exportReportSchema = z.object({
 const idParamsSchema = z.object({ id: z.string().uuid('Report id must be a UUID') });
 
 module.exports = {
+  PARAMS_BY_TYPE,
   idParamsSchema,
   reportQuerySchema,
   exportQuerySchema,

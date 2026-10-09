@@ -1,17 +1,30 @@
 const { Op } = require('sequelize');
+const { containsPattern } = require('../../utils/pagination');
 const { Organization } = require('./organization.model');
 const { Office } = require('./office.model');
 const { Department } = require('./department.model');
 const { OfficeDepartment } = require('./officeDepartment.model');
 const { getTenantId } = require('../../core/tenantContext');
 const { NotFoundError, ValidationError } = require('../../core/AppError');
+const { assertExists } = require('../../core/masterGuards');
+
+/**
+ * The body's organization/office/department ids, proved to be this tenant's.
+ * The join rows below were written with whatever ids arrived, and the list
+ * screens then `include`d another tenant's offices and departments by name.
+ */
+const assertOwnReferences = async ({ organizationId, officeId, officeIds, departmentIds, parentId }) => {
+  await assertExists(Organization, organizationId, 'Organization');
+  await assertExists(Office, [officeId, ...(officeIds || [])], 'Office');
+  await assertExists(Department, [parentId, ...(departmentIds || [])], 'Department');
+};
 
 class OrganizationService {
   // --- Organizations ---
   static async listOrganizations(page, limit, search, status) {
     const offset = (page - 1) * limit;
     const where = {};
-    if (search) where.name = { [Op.iLike]: `%${search}%` };
+    if (search) where.name = { [Op.iLike]: containsPattern(search) };
     if (status) where.status = status;
 
     return Organization.findAndCountAll({ where, limit, offset });
@@ -43,7 +56,7 @@ class OrganizationService {
     const offset = (page - 1) * limit;
     const where = {};
     if (organizationId) where.organizationId = organizationId;
-    if (search) where.name = { [Op.iLike]: `%${search}%` };
+    if (search) where.name = { [Op.iLike]: containsPattern(search) };
     if (status) where.status = status;
 
     return Office.findAndCountAll({
@@ -80,6 +93,7 @@ class OrganizationService {
   }
 
   static async createOffice(data) {
+    await assertOwnReferences(data);
     const { departmentIds, ...officeData } = data;
     const tenantId = officeData.tenantId || getTenantId() || (officeData.organizationId ? (await Organization.findByPk(officeData.organizationId, { attributes: ['tenantId'] }))?.get('tenantId') : null);
     const office = await Office.create({ ...officeData, ...(tenantId ? { tenantId } : {}) });
@@ -100,6 +114,7 @@ class OrganizationService {
   static async updateOffice(id, data) {
     const { departmentIds, ...officeData } = data;
     const office = await this.getOffice(id);
+    await assertOwnReferences(data);
     await office.update(officeData);
     const tenantId = office.tenantId || office.get('tenantId') || getTenantId();
 
@@ -130,7 +145,7 @@ class OrganizationService {
     const offset = (page - 1) * limit;
     const where = {};
     if (organizationId) where.organizationId = organizationId;
-    if (search) where.name = { [Op.iLike]: `%${search}%` };
+    if (search) where.name = { [Op.iLike]: containsPattern(search) };
     if (status) where.status = status;
 
     const include = [
@@ -176,6 +191,7 @@ class OrganizationService {
   }
 
   static async createDepartment(data) {
+    await assertOwnReferences(data);
     const { officeIds, ...deptData } = data;
     const tenantId = deptData.tenantId || getTenantId() || (deptData.organizationId ? (await Organization.findByPk(deptData.organizationId, { attributes: ['tenantId'] }))?.get('tenantId') : null);
 
@@ -215,6 +231,7 @@ class OrganizationService {
   static async updateDepartment(id, data) {
     const { officeIds, ...deptData } = data;
     const dept = await this.getDepartment(id);
+    await assertOwnReferences(data);
     const tenantId = dept.tenantId || dept.get('tenantId') || getTenantId();
 
     if (deptData.code && (deptData.code !== dept.code || (deptData.organizationId && deptData.organizationId !== dept.organizationId))) {

@@ -1,5 +1,6 @@
 const { asyncHandler } = require('../../core/asyncHandler');
 const { AnalyticsService } = require('./analytics.service');
+const { getAllowedFactoryIds } = require('../../core/factoryAccess');
 const { sendSuccess } = require('../../utils/response');
 const { hasViewRates } = require('../../utils/fieldMasking');
 
@@ -63,7 +64,8 @@ const getCancellationAnalytics = asyncHandler(async (req, res) => {
 
 const searchDocuments = asyncHandler(async (req, res) => {
   const { q, limit } = req.query;
-  const data = await AnalyticsService.searchDocuments(q, { limit });
+  // BR-29: results are limited to the plants the caller can see.
+  const data = await AnalyticsService.searchDocuments(q, { limit, allowedFactoryIds: await getAllowedFactoryIds(req) });
   sendSuccess(res, data, 'Search results retrieved successfully');
 });
 

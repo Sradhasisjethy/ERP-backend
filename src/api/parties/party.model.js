@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const { BaseAuditedModel } = require('../../core/AuditedModel');
+const { SENSITIVE_FIELDS } = require('./partySensitive');
 
 /**
  * Unified business-partner record for Customer/Vendor/Contractor/Labour/Sales
@@ -281,6 +282,23 @@ Party.initAudited(
     // rather than silently overwriting a concurrent edit.
     version: 'lockVersion',
     tableName: 'parties',
+    // Identity and bank details stay out of every default read and every
+    // include (Sequelize applies this scope to `{ model: Party }` includes too),
+    // so a sales order or an expense no longer carries the payee's Aadhaar and
+    // account number to whoever may read it. The parties endpoints load them
+    // via `withSensitive` and mask them unless the caller holds
+    // PARTY_SENSITIVE_READ — see partySensitive.js.
+    defaultScope: {
+      attributes: { exclude: [...SENSITIVE_FIELDS] },
+    },
+    scopes: {
+      withSensitive: {
+        attributes: { exclude: ['tenantId'] },
+      },
+    },
+    // The audit log is readable by AUDIT_READ holders who may not hold
+    // PARTY_SENSITIVE_READ; it records that a party changed, not the values.
+    auditExclude: [...SENSITIVE_FIELDS],
   }
 );
 
