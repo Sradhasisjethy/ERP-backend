@@ -215,6 +215,9 @@ class AuthService {
     delete userJson.resetPasswordToken;
     delete userJson.resetPasswordExpires;
     userJson.permissions = await this.getPermissionsForUser(user.id, user.role);
+    // Shows the DPDP privacy desk in the menu. The desk's own routes check this
+    // again; the flag only decides what the menu offers.
+    userJson.isPlatformOwner = require('../../core/platformOwner').isPlatformOwnerEmail(user.email);
 
     return {
       accessToken,
@@ -354,6 +357,7 @@ class AuthService {
     }
     const userJson = user.toJSON();
     userJson.permissions = await this.getPermissionsForUser(user.id, user.role);
+    userJson.isPlatformOwner = require('../../core/platformOwner').isPlatformOwnerEmail(user.email);
 
     // The tenant's sidebar customisation rides along with the session.
     //

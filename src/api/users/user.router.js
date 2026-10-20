@@ -5,6 +5,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 const { AppError, ValidationError } = require('../../core/AppError');
 const { getTenantContext } = require('../../core/tenantContext');
+const { auditContext } = require('../../middlewares/auditContext');
 const { uploadLimiter } = require('../../middlewares/rateLimiter');
 const { list, getById, create, update, deleteUser, uploadDocument, listDocuments, downloadDocument, deleteDocument, verifyDocument, uploadAvatar } = require('./user.controller');
 const { DOCUMENT_TYPES, DOCUMENT_MIME_ALLOW_LIST, hasSignature, discardUpload } = require('./documentFiles');
@@ -184,6 +185,9 @@ const router = Router();
 
 router.use(authenticate);
 router.use(tenantScope);
+// Who changed an employee record, and from where (BR-30; DPDP Rules r.6(1)(e)).
+// Without it every user create, update and delete was audited with no actor.
+router.use(auditContext);
 
 /**
  * These guards asked for the legacy `EMPLOYEE_WRITE` until now, which no user

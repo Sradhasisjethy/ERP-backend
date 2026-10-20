@@ -151,6 +151,11 @@ User.initAudited(
       allowNull: false,
       defaultValue: 1,
     },
+    // Set when a former employee's personal details were erased (DPDP s.8(7)).
+    erasedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     sequelize,

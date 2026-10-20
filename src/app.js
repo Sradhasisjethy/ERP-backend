@@ -51,6 +51,8 @@ const { reportsRouter } = require('./api/reports/reports.router');
 const { notificationsRouter } = require('./api/notifications/notifications.router');
 const { migrationRouter } = require('./api/migration/migration.router');
 const { masterDataRouter } = require('./api/masterData/masterData.router');
+const { privacyRouter } = require('./api/privacy/privacy.router');
+const { publicPrivacyRouter } = require('./api/privacy/publicPrivacy.router');
 require('./models/index');
 
 const app = express();
@@ -251,6 +253,9 @@ app.get(['/health', '/health/ready'], async (req, res) => {
 
 // API Routes — v1
 app.use('/api/v1/auth', authRouter);
+// DPDP Act: the public notice and request form. Before every router mounted on
+// bare /api/v1, which authenticate whatever path reaches them.
+app.use('/api/v1/public/privacy', publicPrivacyRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1', organizationRouter); // Mounts /organizations, /offices, /departments
 app.use('/api/v1/roles', roleRouter);
@@ -290,6 +295,8 @@ app.use('/api/v1/notifications', notificationsRouter);
 app.use('/api/v1/migration', migrationRouter);
 // Excel import/export for every master, one route set for all of them
 app.use('/api/v1/master-data', masterDataRouter);
+// DPDP Act: privacy officer desk and self-service
+app.use('/api/v1/privacy', privacyRouter);
 
 // Unmatched routes -> JSON 404 (must come after all routes, before the error handler)
 app.use(notFoundHandler);

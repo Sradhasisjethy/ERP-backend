@@ -398,4 +398,4 @@ class UserService {
   }
 }
 
-module.exports = { userService: new UserService() };
+module.exports = { userService: new UserService(), removeAvatarFile };

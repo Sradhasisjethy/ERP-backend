@@ -275,6 +275,11 @@ Party.initAudited(
       type: DataTypes.ENUM('active', 'inactive'),
       defaultValue: 'active',
     },
+    // Set when this party's personal details were erased (DPDP s.8(7)).
+    erasedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     sequelize,

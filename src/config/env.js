@@ -78,6 +78,9 @@ const envSchema = z
     JWT_ACCESS_EXPIRATION: z.string().default('1h'),
     ENCRYPTION_KEY: z.string().length(32, 'Encryption key must be 32 characters'),
     CORS_ORIGIN: z.string(),
+    // Comma-separated emails of the application owner's accounts: the only
+    // people who can use the DPDP privacy desk. See core/platformOwner.js.
+    PLATFORM_OWNER_EMAILS: z.string().optional(),
     /**
      * The zone the database connection computes dates in.
      *

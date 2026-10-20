@@ -208,6 +208,10 @@ AuditLog.belongsTo(User, { foreignKey: 'userId' });
 Party.hasOne(LabourWageProfile, { as: 'wageProfile', foreignKey: 'partyId' });
 Party.belongsTo(Party, { as: 'contractor', foreignKey: 'contractorId' });
 
+const {
+  PrivacyProfile, PrivacyNotice, NoticeAcknowledgement, ConsentRecord, DataPrincipalRequest, PrivacyNominee, DataBreach, RetentionRule,
+} = require('../api/privacy/privacy.model');
+
 module.exports = {
   MasterImportRun,
   User,
@@ -292,4 +296,12 @@ module.exports = {
   BundleOverrideAudit,
   IdempotencyKey,
   RefreshToken,
+  PrivacyProfile,
+  PrivacyNotice,
+  NoticeAcknowledgement,
+  ConsentRecord,
+  DataPrincipalRequest,
+  PrivacyNominee,
+  DataBreach,
+  RetentionRule,
 };

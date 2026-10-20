@@ -17,6 +17,12 @@ const { getInvoiceAllocatedAmount } = require('../api/payments/payments.service'
 const { RefreshToken } = require('../api/auth/refreshToken.model');
 const { IdempotencyKey } = require('../api/idempotency/idempotencyKey.model');
 const { sequelize } = require('../config/database');
+const { RetentionService } = require('../api/privacy/retention.service');
+const { OPEN_REQUEST_STATUSES } = require('../api/privacy/requests.service');
+const { today: businessToday } = require('../api/privacy/privacy.service');
+const { DataPrincipalRequest, DataBreach } = require('../api/privacy/privacy.model');
+const { User } = require('../api/users/user.model');
+const { ownerEmails, isPlatformOwnerEmail } = require('../core/platformOwner');
 const { logger } = require('../utils/logger');
 
 /**
@@ -278,6 +284,62 @@ const checkLedgerConsistency = async () => {
   return { checked, discrepancies: discrepancies.length };
 };
 
+/**
+ * DPDP Act, once per run for the whole platform (the privacy desk belongs to
+ * the application owner, not to any organisation): apply the retention rules
+ * the owner switched on, and alert the owner about each request past its due
+ * date (Rules r.14(3)) and each breach whose 72-hour report to the Board is
+ * due within a day or late (Rules r.7(2)(b)). Retention erasure is per record
+ * and idempotent: an erased record no longer matches its rule.
+ *
+ * The alerts are personal notifications to each owner account, raised in that
+ * account's own organisation — a broadcast would put them in front of the
+ * organisation's staff, who have no business seeing them.
+ */
+const runPrivacyDuties = async () => {
+  const retention = await RetentionService.applyEnabled();
+  const today = businessToday();
+  const overdue = await DataPrincipalRequest.findAll({
+    where: { status: { [Op.in]: OPEN_REQUEST_STATUSES }, dueDate: { [Op.lt]: today } },
+    attributes: ['id', 'requestNumber', 'type', 'dueDate'],
+  });
+  const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const breaches = await DataBreach.findAll({
+    where: { status: { [Op.ne]: 'CLOSED' }, boardReportSubmittedAt: null, boardReportDueAt: { [Op.lt]: soon } },
+    attributes: ['id', 'breachNumber', 'boardReportDueAt'],
+  });
+  const alerts = [
+    ...overdue.map((r) => ({
+      type: 'PRIVACY_REQUEST_OVERDUE',
+      severity: 'HIGH',
+      title: 'Privacy request overdue',
+      message: `${r.requestNumber} (${r.type.toLowerCase().replace(/_/g, " ")}) was due on ${r.dueDate}`,
+      entityType: 'DataPrincipalRequest',
+      entityId: r.id,
+    })),
+    ...breaches.map((b) => ({
+      type: 'PRIVACY_BREACH_REPORT_DUE',
+      severity: 'CRITICAL',
+      title: 'Breach report to the Data Protection Board due',
+      message: `${b.breachNumber}: the 72-hour report is due by ${new Date(b.boardReportDueAt).toISOString().slice(0, 16).replace("T", " ")} UTC`,
+      entityType: 'DataBreach',
+      entityId: b.id,
+    })),
+  ];
+  const emails = ownerEmails();
+  const owners = emails.length
+    ? await User.unscoped().findAll({ where: { email: { [Op.in]: emails } }, attributes: ['id', 'tenantId', 'email'] })
+    : [];
+  const raised = { attempted: 0, created: 0 };
+  for (const owner of owners.filter((o) => isPlatformOwnerEmail(o.email))) {
+    const personal = alerts.map((a) => ({ ...a, userId: owner.id, dedupeKey: `${a.type}:${a.entityId}:${owner.id}` }));
+    const result = await runForTenant(owner.tenantId, () => NotificationsService.raiseMany(personal));
+    raised.attempted += result.attempted;
+    raised.created += result.created;
+  }
+  return { retention, overdueRequests: overdue.length, breachReportsDue: breaches.length, owners: owners.length, ...raised };
+};
+
 const JOBS = [
   ['promoteCuredLots', promoteCuredLots],
   ['classifyAgeing', classifyAgeing],
@@ -382,6 +444,17 @@ const runNightlyUnlocked = async ({ tenantId } = {}) => {
     report.housekeeping = { error: error.message };
   }
 
+  // DPDP duties are the application owner's, across every organisation.
+  // Skipped when a single tenant was asked for: they are not that tenant's.
+  if (!tenantId) {
+    try {
+      report.privacy = await runPrivacyDuties();
+    } catch (error) {
+      logger.error({ message: 'Nightly privacy duties failed', error: error.message });
+      report.privacy = { error: error.message };
+    }
+  }
+
   return report;
 };
 
@@ -397,5 +470,6 @@ module.exports = {
   alertStaleReservations,
   alertNegativeCash,
   checkLedgerConsistency,
+  runPrivacyDuties,
   runForTenant,
 };

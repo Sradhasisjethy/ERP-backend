@@ -26,6 +26,8 @@ Lead.initAudited(
     lostReason: { type: DataTypes.TEXT, allowNull: true },
     customerPartyId: { type: DataTypes.UUID, allowNull: true },
     createdBy: { type: DataTypes.UUID, allowNull: true },
+    // Set when the enquirer's personal details were erased (DPDP s.8(7)).
+    erasedAt: { type: DataTypes.DATE, allowNull: true },
   },
   { sequelize, tableName: 'leads' }
 );
