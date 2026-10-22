@@ -273,16 +273,38 @@ describe('Stock protection', () => {
 });
 
 describe('Payment rules', () => {
-  it('rejects a payment that does not settle the invoice in full', async () => {
+  // A short payment is no longer refused: it is a part-payment, allocated for
+  // exactly what was tendered, with the balance outstanding — the same ledger
+  // position as a credit sale that was then partially collected. (Until the
+  // split-payment work this was a 400; split-payments.test.js owns the detail.)
+  it('accepts a part-payment and leaves the shortfall outstanding', async () => {
     const res = await counterSale({
       factoryId: factory.id,
       invoiceDate: '2026-08-26',
       customer: { name: 'Short Payer', phone: '9861000007' },
       lines: [{ productId: finishedGood.id, quantity: 1, ratePaise: 100000 }],
-      payment: { modes: [{ mode: 'CASH', amountPaise: 100000 }] }, // ignores the GST
+      payment: { modes: [{ mode: 'CASH', amountPaise: 100000 }] }, // total is 118,000 with GST
+    });
+    expect(res.status).toBe(201);
+    expect(Number(res.body.data.receipt.totalAmountPaise)).toBe(100000);
+    expect(Number(res.body.data.receipt.allocations[0].allocatedAmountPaise)).toBe(100000);
+
+    const detail = await request(app)
+      .get(`/api/v1/retail/counter-sales/${res.body.data.invoice.id}`)
+      .set('Cookie', adminCookie);
+    expect(Number(detail.body.data.outstandingPaise)).toBe(18000);
+  });
+
+  it('rejects a payment above the invoice total', async () => {
+    const res = await counterSale({
+      factoryId: factory.id,
+      invoiceDate: '2026-08-26',
+      customer: { name: 'Over Payer', phone: '9861000018' },
+      lines: [{ productId: finishedGood.id, quantity: 1, ratePaise: 100000 }],
+      payment: { modes: [{ mode: 'CASH', amountPaise: 200000 }] },
     });
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/does not match the invoice total/i);
+    expect(res.body.message).toMatch(/exceeds the invoice total/i);
   });
 
   it('leaves the stock alone when the payment is refused', async () => {
@@ -290,9 +312,9 @@ describe('Payment rules', () => {
     await counterSale({
       factoryId: factory.id,
       invoiceDate: '2026-08-26',
-      customer: { name: 'Short Payer Two', phone: '9861000008' },
+      customer: { name: 'Over Payer Two', phone: '9861000008' },
       lines: [{ productId: finishedGood.id, quantity: 1, ratePaise: 100000 }],
-      payment: { modes: [{ mode: 'CASH', amountPaise: 1 }] },
+      payment: { modes: [{ mode: 'CASH', amountPaise: 99900000 }] },
     });
     // The whole sale is one transaction: a rejected payment must not leave the
     // goods issued and an invoice posted behind it.

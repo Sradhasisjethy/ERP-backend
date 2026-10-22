@@ -146,6 +146,11 @@ describe('Factory & Financial Year (M01, BR-29)', () => {
       .set('Cookie', adminCookie)
       .send({ userId: limited.id });
     expect(duplicate.status).toBe(409);
+
+    // The assignment changed what the storekeeper's session may see, so their
+    // old token is now refused ("sign in again") — deliberately, see
+    // org-factory-isolation.test.js. Later tests keep using this user.
+    limitedCookie = await loginAs('storekeeper@bhuasuni.test');
   });
 
   it('records an audit log entry for the factory create (BR-30)', async () => {

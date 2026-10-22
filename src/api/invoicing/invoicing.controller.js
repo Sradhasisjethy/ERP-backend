@@ -15,7 +15,9 @@ const listInvoices = asyncHandler(async (req, res) => {
 });
 
 const getInvoice = asyncHandler(async (req, res) => {
-  const data = await InvoicingService.getInvoice(req.params.id);
+  // The detail variant: the invoice plus its method-wise payment history and
+  // outstanding balance, so the screen can show how a split payment was taken.
+  const data = await InvoicingService.getInvoiceDetail(req.params.id);
   await assertCanSeeRecord(req, data, 'Sales invoice not found');
   sendSuccess(res, maskRateFields(data, req), 'Sales invoice retrieved successfully');
 });

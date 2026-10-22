@@ -15,11 +15,18 @@ const FACTORY_BYPASS_ROLES = [SystemRoles.PLATFORM_ADMIN, SystemRoles.TENANT_OWN
  * factories), which is why this is a per-request lookup rather than a single
  * CLS value like tenantId — there is no one "current factory" to inject globally.
  */
-const getAllowedFactoryIds = async (req) => {
-  if (FACTORY_BYPASS_ROLES.includes(req.user.role)) return null;
+const getAllowedFactoryIds = (req) => getAllowedFactoryIdsForUser(req.user);
+
+/**
+ * Same resolution from a bare user/actor object (`{ userId, role }`), for call
+ * sites that hold req.user but not req — the user editor needs the *actor's*
+ * scope while writing someone else's assignments.
+ */
+const getAllowedFactoryIdsForUser = async (user) => {
+  if (FACTORY_BYPASS_ROLES.includes(user.role)) return null;
 
   const { UserFactory } = require('../api/factory/userFactory.model');
-  const rows = await UserFactory.findAll({ where: { userId: req.user.userId }, attributes: ['factoryId'] });
+  const rows = await UserFactory.findAll({ where: { userId: user.userId }, attributes: ['factoryId'] });
   return rows.map((r) => r.factoryId);
 };
 
@@ -58,4 +65,4 @@ const assertFactoryAccess = (allowedFactoryIds, factoryId) => {
   }
 };
 
-module.exports = { getAllowedFactoryIds, applyFactoryFilter, assertFactoryAccess, FACTORY_BYPASS_ROLES };
+module.exports = { getAllowedFactoryIds, getAllowedFactoryIdsForUser, applyFactoryFilter, assertFactoryAccess, FACTORY_BYPASS_ROLES };

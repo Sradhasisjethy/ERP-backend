@@ -566,18 +566,26 @@ class CounterSaleService {
       let receipt = null;
       if (payment) {
         const tendered = addPaise(...payment.modes.map((m) => Number(m.amountPaise)));
-        if (tendered !== totalPaise) {
+        // Money is never taken beyond the invoice: the counter has no advance /
+        // on-account flow, so an overpayment here could only be a typo. Change
+        // for an over-tendered note is given at the till, not recorded.
+        if (tendered > totalPaise) {
           throw new ValidationError(
-            `Payment of ${tendered} paise does not match the invoice total of ${totalPaise} paise. ` +
-              'Counter sales are settled in full; use a credit sale if the balance is to be collected later.'
+            `Payment of ${tendered} paise exceeds the invoice total of ${totalPaise} paise. ` +
+              'Collect at most the invoice amount — give change for the difference.'
           );
         }
+        // Less than the total is a part-payment: the receipt settles what was
+        // actually handed over and the rest stays outstanding against the
+        // buyer, exactly as a zero-payment credit sale leaves the whole total
+        // outstanding. The same allocation figures drive the invoice's
+        // outstandingPaise, so the register shows the true balance either way.
         receipt = await PaymentsService.createReceipt({
           factoryId,
           customerPartyId: resolvedCustomer.id,
           receiptDate: invoiceDate,
           modes: payment.modes,
-          allocations: [{ invoiceId: invoice.id, allocatedAmountPaise: totalPaise }],
+          allocations: [{ invoiceId: invoice.id, allocatedAmountPaise: tendered }],
           transaction,
         });
       }

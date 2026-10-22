@@ -54,6 +54,8 @@ const createUserSchema = z.object({
     managerId: z.string().uuid().nullable().optional(),
     hrId: z.string().uuid().nullable().optional(),
     parentId: z.string().uuid().nullable().optional(),
+    // BR-29 plant assignments. Omitted = untouched; [] = unassign everywhere.
+    factoryIds: z.array(z.string().uuid()).max(100).optional(),
   }),
 });
 
@@ -73,6 +75,7 @@ const updateUserSchema = z.object({
     managerId: z.string().uuid().nullable().optional(),
     hrId: z.string().uuid().nullable().optional(),
     parentId: z.string().uuid().nullable().optional(),
+    factoryIds: z.array(z.string().uuid()).max(100).optional(),
   }),
 });
 

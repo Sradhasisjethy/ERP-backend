@@ -5,6 +5,7 @@ const { Factory } = require('./factory.model');
 const { FinancialYear } = require('./financialYear.model');
 const { hasPermission } = require('../../middlewares/authorize');
 const { assertCanUseFactory } = require('../../core/salesScope');
+const { getAllowedFactoryIds } = require('../../core/factoryAccess');
 const { ForbiddenError, NotFoundError } = require('../../core/AppError');
 const { sendSuccess, sendList } = require('../../utils/response');
 
@@ -70,14 +71,21 @@ const loadYear = async (id) => {
 };
 
 // Factories
+//
+// Every handler that reads or writes a specific plant resolves the caller's
+// BR-29 scope and hands it to the service: a plant-restricted user holding the
+// FACTORY_* administration grants may administer — and even see — only the
+// plants they are assigned to. The two bypass roles resolve to null
+// (unrestricted), which keeps tenant-wide administration working.
 const listFactories = asyncHandler(async (req, res) => {
   const { page, limit, organizationId, search, status } = req.query;
-  const data = await FactoryService.listFactories(Number(page), Number(limit), organizationId, search, status);
+  const allowed = await getAllowedFactoryIds(req);
+  const data = await FactoryService.listFactories(Number(page), Number(limit), organizationId, search, status, allowed);
   sendList(res, req, data, 'Factories retrieved successfully');
 });
 
 const getFactory = asyncHandler(async (req, res) => {
-  const data = await FactoryService.getFactory(req.params.id);
+  const data = await FactoryService.getFactory(req.params.id, await getAllowedFactoryIds(req));
   sendSuccess(res, data, 'Factory retrieved successfully');
 });
 
@@ -88,13 +96,14 @@ const createFactory = asyncHandler(async (req, res) => {
 });
 
 const updateFactory = asyncHandler(async (req, res) => {
-  assertMayChangePolicy(req, await FactoryService.getFactory(req.params.id));
-  const data = await FactoryService.updateFactory(req.params.id, req.body);
+  const allowed = await getAllowedFactoryIds(req);
+  assertMayChangePolicy(req, await FactoryService.getFactory(req.params.id, allowed));
+  const data = await FactoryService.updateFactory(req.params.id, req.body, allowed);
   sendSuccess(res, data, 'Factory updated successfully');
 });
 
 const deleteFactory = asyncHandler(async (req, res) => {
-  await FactoryService.deleteFactory(req.params.id);
+  await FactoryService.deleteFactory(req.params.id, await getAllowedFactoryIds(req));
   sendSuccess(res, null, 'Factory deleted successfully');
 });
 
@@ -158,7 +167,7 @@ const setCurrentFinancialYear = asyncHandler(async (req, res) => {
 
 // User <-> Factory assignment
 const listAssignedUsers = asyncHandler(async (req, res) => {
-  const data = await FactoryService.listAssignedUsers(req.params.id);
+  const data = await FactoryService.listAssignedUsers(req.params.id, await getAllowedFactoryIds(req));
   sendSuccess(res, data, 'Assigned users retrieved successfully');
 });
 
@@ -172,6 +181,9 @@ const assignUser = asyncHandler(async (req, res) => {
 });
 
 const unassignUser = asyncHandler(async (req, res) => {
+  // Same scope rule as assignUser: removing someone from a plant you cannot
+  // yourself act on is still administering that plant's access.
+  await assertCanUseFactory(req, req.params.id);
   await FactoryService.unassignUser(req.params.id, req.params.userId);
   sendSuccess(res, null, 'User unassigned from factory successfully');
 });

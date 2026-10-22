@@ -14,6 +14,7 @@
     "migrate:generate": "sequelize-cli migration:generate --name",
     "jobs:run": "node src/scripts/runJobs.js",
     "roles:ensure": "node src/scripts/ensure-default-roles.js",
+    "scope:report": "node src/scripts/report-unscoped-users.js",
     "bundles:ensure-reasons": "node src/scripts/ensure-bundle-reason-codes.js",
     "check:transactions": "node src/scripts/check-nested-transactions.js"
   },

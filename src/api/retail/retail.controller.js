@@ -30,7 +30,9 @@ const listCounterSales = asyncHandler(async (req, res) => {
 });
 
 const getCounterSale = asyncHandler(async (req, res) => {
-  const data = await InvoicingService.getInvoice(req.params.id);
+  // Detail variant: carries the method-wise payment breakdown and the
+  // outstanding balance alongside the invoice itself.
+  const data = await InvoicingService.getInvoiceDetail(req.params.id);
   await assertCanSeeRecord(req, data, 'Counter sale not found');
   sendSuccess(res, maskRateFields(data, req), 'Counter sale retrieved successfully');
 });

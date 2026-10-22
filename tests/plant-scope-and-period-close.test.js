@@ -101,6 +101,9 @@ beforeAll(async () => {
 
   const locAdmin = await mk('locadmin@plantscope.test');
   await grant(locAdmin, 'Location admins', ['FACTORY_READ', 'FACTORY_CREATE', 'FACTORY_MODIFY']);
+  // FACTORY_MODIFY is no longer tenant-wide: a plant-restricted administrator
+  // may only administer plants they are assigned to (org-factory-isolation).
+  await UserFactory.create({ tenantId, userId: locAdmin.id, factoryId: plantA.id });
   const closer = await mk('closer@plantscope.test');
   await grant(closer, 'Year closers', ['FACTORY_READ', 'FACTORY_MODIFY', 'FINANCIAL_YEAR_CLOSE']);
 

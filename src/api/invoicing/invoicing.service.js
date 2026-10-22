@@ -108,6 +108,48 @@ class InvoicingService {
   }
 
   /**
+   * One invoice with its money history: what it came to, what has been
+   * received against it (and how — the method-wise breakdown per receipt),
+   * and what is still owed.
+   *
+   * Built for the detail screens and the printed invoice, which must be able
+   * to say "₹31,860 cash + ₹31,860 UPI received, nothing outstanding" for a
+   * split payment. getInvoice stays a model instance for the mutating paths;
+   * this returns plain JSON and must not be handed to anything that calls
+   * `.update()` on it.
+   *
+   * Only POSTED receipts count — the same rule withOutstanding applies — and a
+   * receipt's modes are included whole: when one receipt settles several
+   * invoices the per-invoice figure is `allocatedAmountPaise`, and the modes
+   * say how the receipt as a whole was tendered.
+   */
+  static async getInvoiceDetail(id) {
+    const invoice = await this.getInvoice(id);
+    const [json] = await this.withOutstanding([invoice]);
+
+    const { PaymentAllocation } = require('../payments/paymentAllocation.model');
+    const { Receipt } = require('../payments/receipt.model');
+    const allocations = await PaymentAllocation.findAll({
+      where: { invoiceType: 'SALES', invoiceId: json.id },
+      include: [{
+        model: Receipt, as: 'receipt', required: true, where: { status: 'POSTED' },
+        attributes: ['id', 'receiptNumber', 'receiptDate', 'modes', 'totalAmountPaise'],
+      }],
+      order: [[{ model: Receipt, as: 'receipt' }, 'receiptDate', 'ASC']],
+    });
+
+    json.payments = allocations.map((a) => ({
+      receiptId: a.receipt.id,
+      receiptNumber: a.receipt.receiptNumber,
+      receiptDate: a.receipt.receiptDate,
+      allocatedAmountPaise: Number(a.allocatedAmountPaise),
+      receiptTotalPaise: Number(a.receipt.totalAmountPaise),
+      modes: a.receipt.modes,
+    }));
+    return json;
+  }
+
+  /**
    * Loaded wide enough to print the tax invoice without a second trip: the
    * issuing factory and its organisation for the letterhead and supplier GSTIN,
    * and per line the unit the quantity is expressed in. The tax figures and the

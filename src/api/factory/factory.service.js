@@ -65,19 +65,39 @@ const generate12Periods = (startDateStr, status) => {
 
 class FactoryService {
   // --- Factories ---
-  static async listFactories(page, limit, organizationId, search, status) {
+  /**
+   * `allowedFactoryIds` is the caller's BR-29 scope (null = unrestricted).
+   * This list feeds every factory dropdown in the frontend, so scoping it here
+   * is what keeps a Plant A user from ever being *offered* Plant B — in forms,
+   * filters, reports and the administration screen alike. Hiding the option is
+   * not the security boundary (the write paths check again), but the same rule
+   * has to hold on reads or the list itself leaks the other plants' names.
+   */
+  static async listFactories(page, limit, organizationId, search, status, allowedFactoryIds = null) {
     const offset = (page - 1) * limit;
     const where = {};
     if (organizationId) where.organizationId = organizationId;
     if (search) where.name = { [Op.iLike]: containsPattern(search) };
     if (status) where.status = status;
+    if (allowedFactoryIds !== null) {
+      // Same impossible-UUID convention as applyFactoryFilter: no assignments
+      // means an empty list, not an unfiltered one.
+      where.id = { [Op.in]: allowedFactoryIds.length ? allowedFactoryIds : ['00000000-0000-0000-0000-000000000000'] };
+    }
 
     return Factory.findAndCountAll({ where, limit, offset, order: [['name', 'ASC']] });
   }
 
-  static async getFactory(id) {
+  /**
+   * 404, not 403, for a plant outside the caller's scope — the same
+   * no-existence-leak policy assertCanSeeRecord documents. Internal callers
+   * that have already established scope omit the second argument.
+   */
+  static async getFactory(id, allowedFactoryIds = null) {
     const factory = await Factory.findByPk(id);
-    if (!factory) throw new NotFoundError('Factory not found');
+    if (!factory || (allowedFactoryIds !== null && !allowedFactoryIds.includes(factory.id))) {
+      throw new NotFoundError('Factory not found');
+    }
     return factory;
   }
 
@@ -85,13 +105,13 @@ class FactoryService {
     return Factory.create(data);
   }
 
-  static async updateFactory(id, data) {
-    const factory = await this.getFactory(id);
+  static async updateFactory(id, data, allowedFactoryIds = null) {
+    const factory = await this.getFactory(id, allowedFactoryIds);
     return factory.update(data);
   }
 
-  static async deleteFactory(id) {
-    const factory = await this.getFactory(id);
+  static async deleteFactory(id, allowedFactoryIds = null) {
+    const factory = await this.getFactory(id, allowedFactoryIds);
     await factory.destroy();
     return true;
   }
@@ -334,8 +354,8 @@ class FactoryService {
   }
 
   // --- User <-> Factory assignment (BR-29) ---
-  static async listAssignedUsers(factoryId) {
-    await this.getFactory(factoryId);
+  static async listAssignedUsers(factoryId, allowedFactoryIds = null) {
+    await this.getFactory(factoryId, allowedFactoryIds);
     return UserFactory.findAll({ where: { factoryId } });
   }
 
@@ -350,6 +370,13 @@ class FactoryService {
       defaults: { factoryId, userId },
     });
     if (!created) throw new ConflictError('User is already assigned to this factory');
+    // An assignment changes what the user's session is allowed to touch, so
+    // their outstanding tokens stop at the next request — same rule as a role
+    // change (permissionVersion.js). The data scope itself is already live
+    // (getAllowedFactoryIds reads the table per request); this makes the
+    // *client* refresh, so its cached factory list and user object follow.
+    const { bumpUser } = require('../../utils/permissionVersion');
+    await bumpUser(userId);
     return assignment;
   }
 
@@ -357,6 +384,8 @@ class FactoryService {
     const assignment = await UserFactory.findOne({ where: { factoryId, userId } });
     if (!assignment) throw new NotFoundError('Assignment not found');
     await assignment.destroy();
+    const { bumpUser } = require('../../utils/permissionVersion');
+    await bumpUser(userId);
     return true;
   }
 }

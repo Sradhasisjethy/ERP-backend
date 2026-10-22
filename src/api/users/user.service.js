@@ -1,8 +1,9 @@
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { Op, QueryTypes } = require('sequelize');
-const { User, Department, Office, Organization, AdGroupMember, AdGroup } = require('../../models');
+const { User, Department, Office, Organization, AdGroupMember, AdGroup, Factory, UserFactory } = require('../../models');
 const { getTenantId } = require('../../core/tenantContext');
+const { getAllowedFactoryIdsForUser } = require('../../core/factoryAccess');
 const { containsPattern } = require('../../utils/pagination');
 const { NotFoundError, ForbiddenError, ValidationError } = require('../../core/AppError');
 const { SystemRoles } = require('../../utils/constants');
@@ -123,6 +124,63 @@ const assertReferencesInTenant = async (fields, roleId, transaction) => {
 };
 
 /**
+ * BR-29: the invariant a user write must leave true, and who may write it.
+ *
+ * `finalOrg`/`finalFactoryIds` are the values the user record will hold *after*
+ * the write (whichever of them this request changes). The rules:
+ *
+ *  1. Every assigned factory must exist in this tenant — the ids come from the
+ *     client, so a foreign or invented id is simply "not found".
+ *  2. Every assigned factory must belong to the user's organisation. A user of
+ *     Organisation A assigned to Organisation B's plant would make the two
+ *     scopes disagree about what they may see.
+ *  3. An actor without full access may not hand out plants beyond their own
+ *     BR-29 scope — not as additions (widening someone, or themselves via a
+ *     second account) and not as removals (kicking a user out of a plant the
+ *     actor cannot themselves act on).
+ *  4. An actor without full access who belongs to an organisation may only
+ *     file users under that organisation.
+ *
+ * The actor's organisation is read from the database, not the JWT claim — the
+ * claim is minted at login and an administrator moved between organisations
+ * must not keep acting under the old one for up to an hour.
+ */
+const assertFactoryAssignmentInScope = async (actor, { finalOrg, finalFactoryIds, addedIds, removedIds, orgChanged }) => {
+  if (finalFactoryIds.length) {
+    if (!finalOrg) {
+      throw new ValidationError('Assign the user to an organisation before assigning factories');
+    }
+    const factories = await Factory.findAll({
+      where: { id: { [Op.in]: finalFactoryIds } },
+      attributes: ['id', 'organizationId'],
+    });
+    if (factories.length !== new Set(finalFactoryIds).size) throw new NotFoundError('Factory not found');
+    if (factories.some((f) => f.organizationId !== finalOrg)) {
+      throw new ValidationError('Every assigned factory must belong to the selected organisation');
+    }
+  }
+
+  if (RoleService.hasFullAccess(actor)) return;
+
+  if ((addedIds.length || removedIds.length)) {
+    const allowed = await getAllowedFactoryIdsForUser(actor);
+    if (allowed !== null) {
+      const outOfScope = [...addedIds, ...removedIds].filter((id) => !allowed.includes(id));
+      if (outOfScope.length) {
+        throw new ForbiddenError('You can only change assignments for factories you are assigned to yourself');
+      }
+    }
+  }
+
+  if (orgChanged) {
+    const self = await User.findByPk(actor.userId, { attributes: ['id', 'organizationId'] });
+    if (self && self.organizationId && self.organizationId !== finalOrg) {
+      throw new ForbiddenError('You can only assign users to your own organisation');
+    }
+  }
+};
+
+/**
  * What EMPLOYEE_READ alone shows: a staff directory.
  *
  * EMPLOYEE_READ is held by the default "Employee" role, so every member of
@@ -232,6 +290,7 @@ class UserService {
           attributes: ['id', 'adGroupId'],
           include: [{ model: AdGroup, attributes: ['id', 'name', 'code'] }],
         },
+        { model: UserFactory, attributes: ['id', 'factoryId'] },
       ],
       order: [['createdAt', 'DESC']],
     });
@@ -259,6 +318,7 @@ class UserService {
           attributes: ['id', 'adGroupId'],
           include: [{ model: AdGroup, attributes: ['id', 'name', 'code'] }],
         },
+        { model: UserFactory, attributes: ['id', 'factoryId'] },
       ],
     });
 
@@ -270,11 +330,19 @@ class UserService {
   }
 
   async create(data, actor) {
-    const { password, sendInvite = true, roleId } = data;
+    const { password, sendInvite = true, roleId, factoryIds } = data;
     const rest = pickWritable(data);
     await assertRoleAssignable(actor, { role: rest.role, roleId });
     await assertReferencesInTenant(rest, roleId);
     await assertAvatarAvailable(rest.avatar, null);
+    const newFactoryIds = [...new Set(factoryIds || [])];
+    await assertFactoryAssignmentInScope(actor, {
+      finalOrg: rest.organizationId || null,
+      finalFactoryIds: newFactoryIds,
+      addedIds: newFactoryIds,
+      removedIds: [],
+      orgChanged: rest.organizationId !== undefined,
+    });
 
     // If password provided, hash it; otherwise generate random secure initial hash
     const rawPassword = password || crypto.randomBytes(32).toString('hex');
@@ -285,18 +353,35 @@ class UserService {
     const hashedToken = crypto.createHash('sha256').update(setupToken).digest('hex');
     const resetPasswordExpires = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-    const user = await User.create({
-      ...rest,
-      passwordHash,
-      resetPasswordToken: hashedToken,
-      resetPasswordExpires,
-    });
+    const user = await User.sequelize.transaction(async (transaction) => {
+      const created = await User.create(
+        {
+          ...rest,
+          passwordHash,
+          resetPasswordToken: hashedToken,
+          resetPasswordExpires,
+        },
+        { transaction }
+      );
 
-    if (roleId) {
-      // Never "any tenant": the old fallback was `Tenant.findOne()`, which would
-      // have filed the membership under whichever tenant came first.
-      await AdGroupMember.create({ adGroupId: roleId, employeeId: user.id, tenantId: getTenantId() || user.tenantId });
-    }
+      if (roleId) {
+        // Never "any tenant": the old fallback was `Tenant.findOne()`, which would
+        // have filed the membership under whichever tenant came first.
+        await AdGroupMember.create(
+          { adGroupId: roleId, employeeId: created.id, tenantId: getTenantId() || created.tenantId },
+          { transaction }
+        );
+      }
+
+      for (const factoryId of newFactoryIds) {
+        await UserFactory.create(
+          { userId: created.id, factoryId, tenantId: getTenantId() || created.tenantId },
+          { transaction }
+        );
+      }
+
+      return created;
+    });
 
     // Send Welcome / Set Password Invitation Email
     if (sendInvite || !password) {
@@ -328,7 +413,7 @@ class UserService {
 
     await assertMayManage(actor, user);
     const previousAvatar = user.avatar;
-    const { roleId } = data;
+    const { roleId, factoryIds } = data;
     const rest = pickWritable(data);
     await assertRoleAssignable(actor, { role: rest.role, roleId });
     await assertReferencesInTenant(rest, roleId);
@@ -337,9 +422,29 @@ class UserService {
     if (rest.avatar !== undefined && rest.avatar !== previousAvatar) {
       await assertAvatarAvailable(rest.avatar, user.id);
     }
-    // Either field changes what this user may do, so any token they already
-    // hold has to stop working.
-    const accessChanged = rest.role !== undefined || roleId !== undefined;
+
+    // The BR-29 invariant is checked against what the record will hold *after*
+    // this write, so changing the organisation alone cannot leave the user
+    // assigned to the old organisation's plants: the caller must send a
+    // factoryIds list consistent with the new organisation in the same request.
+    const existingRows = await UserFactory.findAll({ where: { userId: user.id } });
+    const existingIds = existingRows.map((r) => r.factoryId);
+    const finalFactoryIds = factoryIds !== undefined ? [...new Set(factoryIds)] : existingIds;
+    const finalOrg = rest.organizationId !== undefined ? rest.organizationId : user.organizationId;
+    const addedIds = finalFactoryIds.filter((id) => !existingIds.includes(id));
+    const removedIds = existingIds.filter((id) => !finalFactoryIds.includes(id));
+    await assertFactoryAssignmentInScope(actor, {
+      finalOrg: finalOrg || null,
+      finalFactoryIds,
+      addedIds,
+      removedIds,
+      orgChanged: rest.organizationId !== undefined && rest.organizationId !== user.organizationId,
+    });
+
+    // Any of these changes what this user may do or see, so any token they
+    // already hold has to stop working.
+    const accessChanged =
+      rest.role !== undefined || roleId !== undefined || addedIds.length > 0 || removedIds.length > 0;
 
     // One transaction, version bumped last. The bump used to come first and
     // outside any transaction, so a refresh landing between it and the
@@ -356,6 +461,17 @@ class UserService {
             { transaction }
           );
         }
+      }
+
+      // Row-by-row, not bulk: each change leaves its own audit entry.
+      for (const row of existingRows) {
+        if (removedIds.includes(row.factoryId)) await row.destroy({ transaction });
+      }
+      for (const factoryId of addedIds) {
+        await UserFactory.create(
+          { userId: user.id, factoryId, tenantId: getTenantId() || user.tenantId },
+          { transaction }
+        );
       }
 
       if (accessChanged) await bumpUser(user.id, transaction);

@@ -359,6 +359,13 @@ class AuthService {
     userJson.permissions = await this.getPermissionsForUser(user.id, user.role);
     userJson.isPlatformOwner = require('../../core/platformOwner').isPlatformOwnerEmail(user.email);
 
+    // BR-29 scope for the client: the plants this session may act on, or null
+    // for the unrestricted roles. Informational only — every API enforces the
+    // same rule server-side — but it lets the UI hide plants it should not
+    // offer without a second round trip.
+    const { getAllowedFactoryIdsForUser } = require('../../core/factoryAccess');
+    userJson.factoryIds = await getAllowedFactoryIdsForUser({ userId: user.id, role: user.role });
+
     // The tenant's sidebar customisation rides along with the session.
     //
     // It cannot come from GET /settings/navigation, because that route is gated

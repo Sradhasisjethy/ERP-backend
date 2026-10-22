@@ -1,14 +1,18 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
-const { BaseScopedModel } = require('../../core/BaseModel');
+const { BaseAuditedModel } = require('../../core/AuditedModel');
 
 /**
  * Join table scoping a user's access to specific factories (BR-29). Consumed
  * by core/factoryAccess.js, not queried directly by most services.
+ *
+ * Audited, not merely scoped: who may see which plant is the most
+ * access-relevant assignment after roles, so granting and revoking it must
+ * leave a trail (actor, IP, timestamp ride in from the CLS audit context).
  */
-class UserFactory extends BaseScopedModel {}
+class UserFactory extends BaseAuditedModel {}
 
-UserFactory.initScoped(
+UserFactory.initAudited(
   {
     id: {
       type: DataTypes.UUID,
