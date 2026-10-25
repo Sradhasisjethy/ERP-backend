@@ -1,6 +1,7 @@
 const { asyncHandler } = require('../../core/asyncHandler');
 const { OrganizationService } = require('./organization.service');
 const { sendSuccess, sendList } = require('../../utils/response');
+const { ValidationError } = require('../../core/AppError');
 
 // Organizations
 const listOrganizations = asyncHandler(async (req, res) => {
@@ -83,6 +84,14 @@ const deleteDepartment = asyncHandler(async (req, res) => {
   sendSuccess(res, null, 'Department deleted successfully');
 });
 
+// Mirrors uploadAvatar in user.controller.js: the route's multer + byte-check
+// middlewares have already refused anything that is not a real raster image.
+const uploadLogo = asyncHandler(async (req, res) => {
+  if (!req.file) throw new ValidationError('No image file uploaded');
+  const url = `/uploads/logos/${req.file.filename}`;
+  sendSuccess(res, { url, filename: req.file.filename, size: req.file.size }, 'Logo uploaded successfully', 201);
+});
+
 module.exports = {
   listOrganizations,
   getOrganization,
@@ -99,4 +108,5 @@ module.exports = {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  uploadLogo,
 };

@@ -42,6 +42,23 @@ class OrganizationService {
 
   static async updateOrganization(id, data) {
     const org = await this.getOrganization(id);
+    // The schema checks GSTIN/PAN/state-code agreement within one request;
+    // a partial update can still desync them against the stored row (send a
+    // new stateCode without resending the GSTIN), so the merged result is
+    // checked here, where the row is visible.
+    const merged = {
+      gstin: data.gstin !== undefined ? data.gstin : org.gstin,
+      pan: data.pan !== undefined ? data.pan : org.pan,
+      stateCode: data.stateCode !== undefined ? data.stateCode : org.stateCode,
+    };
+    if (merged.gstin) {
+      if (merged.stateCode && merged.gstin.slice(0, 2) !== merged.stateCode) {
+        throw new ValidationError(`State code ${merged.stateCode} does not match the GSTIN, which starts with ${merged.gstin.slice(0, 2)}`);
+      }
+      if (merged.pan && merged.gstin.slice(2, 12) !== merged.pan) {
+        throw new ValidationError(`PAN ${merged.pan} does not match the one embedded in the GSTIN (${merged.gstin.slice(2, 12)})`);
+      }
+    }
     return org.update(data);
   }
 

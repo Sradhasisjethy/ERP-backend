@@ -222,6 +222,9 @@ const serveImagesOnly = (dir) => [
 ];
 app.use('/uploads/assets', ...serveImagesOnly(path.join(__dirname, '../uploads/assets')));
 app.use('/uploads/avatars', ...serveImagesOnly(path.join(__dirname, '../uploads/avatars')));
+// Company logos: rendered on GST invoices, challans and POs, and needed by
+// the browser before those documents are generated, so served like avatars.
+app.use('/uploads/logos', ...serveImagesOnly(path.join(__dirname, '../uploads/logos')));
 
 /**
  * Readiness: can this instance actually serve traffic?
